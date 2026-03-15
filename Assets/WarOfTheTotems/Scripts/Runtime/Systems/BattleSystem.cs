@@ -17,8 +17,8 @@ namespace WarOfTheTotems.Systems
         // События
         // ----------------------------------------------------------------
 
-        /// <summary>Запросить спавн вражеского юнита.</summary>
-        public event Action? OnEnemySpawnRequested;
+        /// <summary>Запросить спавн юнита волны: (индекс в волне, размер волны).</summary>
+        public event Action<int, int>? OnEnemySpawnRequested;
 
         /// <summary>Бой завершён. true = игрок победил.</summary>
         public event Action<bool>? OnBattleEnded;
@@ -114,8 +114,11 @@ namespace WarOfTheTotems.Systems
 
         private void RequestEnemyWave()
         {
-            for (var i = 0; i < Mathf.Max(1, ActiveLevel.enemyWaveSize); i++)
-                OnEnemySpawnRequested?.Invoke();
+            var waveSize = Mathf.Max(1, ActiveLevel.enemyWaveSize);
+            for (var i = 0; i < waveSize; i++)
+            {
+                OnEnemySpawnRequested?.Invoke(i, waveSize);
+            }
         }
 
         private void EndBattle(bool playerWon)
