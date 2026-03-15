@@ -47,10 +47,17 @@ namespace WarOfTheTotems.Gameplay
         private Text battleMenuTitleText = null!;
         private Text battleMenuDescriptionText = null!;
         private Text battleLevelStatusText = null!;
+        private Text battleLevelTitleText = null!;
+        private Text battleLevelEnemyText = null!;
+        private Text battleLevelPlayerText = null!;
         private Text modeTitleText = null!;
         private Text unitsBalanceText = null!;
         private Text unitsUpgradeCostText = null!;
         private Text unitsHealthValueText = null!;
+        private Text unitsDamageValueText = null!;
+        private Text unitsDamageCostText = null!;
+        private Text unitsManaValueText = null!;
+        private Text unitsManaCostText = null!;
         private RectTransform evolutionPanel = null!;
         private RectTransform evolutionFill = null!;
         private RectTransform defeatPanel = null!;
@@ -69,9 +76,14 @@ namespace WarOfTheTotems.Gameplay
         private Button beastSummonButton = null!;
         private Button defeatUnitsButton = null!;
         private Button unitsUpgradeButton = null!;
+        private Button unitsDamageUpgradeButton = null!;
+        private Button unitsManaUpgradeButton = null!;
+        private Button resetProgressButton = null!;
         private Button unitsBattleButton = null!;
         private Button hubBattleButton = null!;
         private Button levelStartButton = null!;
+        private Button levelPrevButton = null!;
+        private Button levelNextButton = null!;
         private Button navHomeButton = null!;
         private Button navUnitsButton = null!;
         private Button navBattleButton = null!;
@@ -96,7 +108,7 @@ namespace WarOfTheTotems.Gameplay
         {
             if (team == TeamSide.Player && totem == TotemType.None && activeLevel.playerBaseBearerHealth > 0)
             {
-                return activeLevel.playerBaseBearerHealth;
+                return activeLevel.playerBaseBearerHealth + state.baseBearerBonusHealth;
             }
 
             if (team == TeamSide.Enemy && totem == TotemType.Shadow && activeLevel.enemyShadowHealth > 0)
@@ -111,7 +123,7 @@ namespace WarOfTheTotems.Gameplay
         {
             if (team == TeamSide.Player && totem == TotemType.None && activeLevel.playerBaseBearerDamage > 0)
             {
-                return activeLevel.playerBaseBearerDamage;
+                return activeLevel.playerBaseBearerDamage + state.baseBearerBonusDamage;
             }
 
             if (team == TeamSide.Enemy && totem == TotemType.Shadow && activeLevel.enemyShadowDamage > 0)
@@ -545,10 +557,12 @@ namespace WarOfTheTotems.Gameplay
     levelsAccent.anchoredPosition = Vector2.zero;
     battleMenuTitleText = EnsureText("BattleMenuTitle", levelsCard, "ВЫБОР УРОВНЯ", TextAnchor.MiddleCenter, 38, new Vector2(0f, 220f), new Vector2(420f, 50f));
     battleMenuDescriptionText = EnsureText("BattleMenuDescription", levelsCard, "После обучения доступен первый бой", TextAnchor.MiddleCenter, 20, new Vector2(0f, 180f), new Vector2(680f, 32f));
+    levelPrevButton = EnsureButton("LevelPrevButton", levelsCard, "<", new Vector2(-300f, 10f), new Vector2(70f, 70f), new Color(0.20f, 0.23f, 0.30f, 1f));
+    levelNextButton = EnsureButton("LevelNextButton", levelsCard, ">", new Vector2(300f, 10f), new Vector2(70f, 70f), new Color(0.20f, 0.23f, 0.30f, 1f));
     var levelOneCard = EnsurePanel("Level01Card", levelsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 10f), new Vector2(340f, 220f), new Color(0.19f, 0.22f, 0.18f, 1f));
-    EnsureText("Level01Title", levelOneCard, "УРОВЕНЬ 1", TextAnchor.MiddleCenter, 30, new Vector2(0f, 62f), new Vector2(240f, 40f));
-    EnsureText("Level01Enemy", levelOneCard, "Башня врага: 1 уровень", TextAnchor.MiddleCenter, 20, new Vector2(0f, 18f), new Vector2(240f, 28f));
-    EnsureText("Level01Player", levelOneCard, "У тебя только 1 базовый боец", TextAnchor.MiddleCenter, 18, new Vector2(0f, -16f), new Vector2(260f, 28f));
+    battleLevelTitleText = EnsureText("Level01Title", levelOneCard, "УРОВЕНЬ 1", TextAnchor.MiddleCenter, 30, new Vector2(0f, 62f), new Vector2(240f, 40f));
+    battleLevelEnemyText = EnsureText("Level01Enemy", levelOneCard, "Башня врага: 1 уровень", TextAnchor.MiddleCenter, 20, new Vector2(0f, 18f), new Vector2(240f, 28f));
+    battleLevelPlayerText = EnsureText("Level01Player", levelOneCard, "У тебя только 1 базовый боец", TextAnchor.MiddleCenter, 18, new Vector2(0f, -16f), new Vector2(260f, 28f));
     battleLevelStatusText = EnsureText("Level01Status", levelOneCard, "ОТКРЫТ", TextAnchor.MiddleCenter, 18, new Vector2(0f, -56f), new Vector2(180f, 24f));
     levelStartButton = EnsureButton("Level01StartButton", levelsCard, "В БОЙ", new Vector2(0f, -180f), new Vector2(300f, 72f), new Color(0.84f, 0.42f, 0.10f, 1f));
 
@@ -589,17 +603,74 @@ namespace WarOfTheTotems.Gameplay
     EnsureText("UnitsLocked2", lockedCard2, "Тотем Зверя\n(Закрыто)", TextAnchor.MiddleCenter, 20, Vector2.zero, new Vector2(185f, 64f));
 
     // Карточка характеристик
-    var statsCard = EnsurePanel("UnitsStatsCard", unitsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -115f), new Vector2(520f, 210f), new Color(0.96f, 0.92f, 0.82f, 1f));
+    var statsCard = EnsurePanel("UnitsStatsCard", unitsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -105f), new Vector2(560f, 270f), new Color(0.96f, 0.92f, 0.82f, 1f));
     EnsureText("UnitsStatsTitle", statsCard, "Характеристики", TextAnchor.MiddleCenter, 24, new Vector2(0f, 72f), new Vector2(220f, 32f));
-    EnsureText("UnitsUpgradeLabel", statsCard, "Здоровье Бойца:", TextAnchor.MiddleRight, 26, new Vector2(-60f, 16f), new Vector2(240f, 36f));
-    unitsHealthValueText = EnsureText("UnitsHealthValue", statsCard, "10", TextAnchor.MiddleLeft, 26, new Vector2(130f, 16f), new Vector2(120f, 36f));
-    EnsureText("UnitsUpgradeCostLabel", statsCard, "Стоимость апгрейда:", TextAnchor.MiddleRight, 22, new Vector2(-60f, -28f), new Vector2(240f, 32f));
-    unitsUpgradeCostText = EnsureText("UnitsUpgradeCost", statsCard, "5", TextAnchor.MiddleLeft, 22, new Vector2(130f, -28f), new Vector2(120f, 32f));
+    EnsureText("UnitsUpgradeLabel", statsCard, "Здоровье:", TextAnchor.MiddleRight, 20, new Vector2(-60f, 16f), new Vector2(240f, 36f));
+    unitsHealthValueText = EnsureText("UnitsHealthValue", statsCard, "10", TextAnchor.MiddleLeft, 22, new Vector2(130f, 16f), new Vector2(120f, 36f));
+    EnsureText("UnitsUpgradeCostLabel", statsCard, "Цена:", TextAnchor.MiddleRight, 19, new Vector2(-60f, -28f), new Vector2(240f, 32f));
+    unitsUpgradeCostText = EnsureText("UnitsUpgradeCost", statsCard, "5", TextAnchor.MiddleLeft, 20, new Vector2(130f, -28f), new Vector2(120f, 32f));
+    EnsureText("UnitsDamageLabel", statsCard, "Урон:", TextAnchor.MiddleRight, 20, new Vector2(-60f, -72f), new Vector2(240f, 32f));
+    unitsDamageValueText = EnsureText("UnitsDamageValue", statsCard, "1", TextAnchor.MiddleLeft, 22, new Vector2(130f, -72f), new Vector2(60f, 32f));
+    EnsureText("UnitsDamageCostLabel", statsCard, "Цена:", TextAnchor.MiddleRight, 19, new Vector2(25f, -72f), new Vector2(80f, 28f));
+    unitsDamageCostText = EnsureText("UnitsDamageCost", statsCard, "4", TextAnchor.MiddleLeft, 20, new Vector2(95f, -72f), new Vector2(60f, 28f));
+    EnsureButton("UnitsDamageUpgradeButton", statsCard, "ATK +", new Vector2(180f, -72f), new Vector2(110f, 40f), new Color(0.73f, 0.42f, 0.16f, 1f));
+    EnsureText("UnitsManaLabel", statsCard, "Мана:", TextAnchor.MiddleRight, 20, new Vector2(-60f, -112f), new Vector2(240f, 32f));
+    unitsManaValueText = EnsureText("UnitsManaValue", statsCard, "2", TextAnchor.MiddleLeft, 22, new Vector2(130f, -112f), new Vector2(60f, 32f));
+    EnsureText("UnitsManaCostLabel", statsCard, "Цена:", TextAnchor.MiddleRight, 19, new Vector2(25f, -112f), new Vector2(80f, 28f));
+    unitsManaCostText = EnsureText("UnitsManaCost", statsCard, "4", TextAnchor.MiddleLeft, 20, new Vector2(95f, -112f), new Vector2(60f, 28f));
+    EnsureButton("UnitsManaUpgradeButton", statsCard, "MANA +", new Vector2(180f, -112f), new Vector2(110f, 40f), new Color(0.29f, 0.50f, 0.70f, 1f));
 
     // Кнопка улучшения
     EnsureButton("UnitsUpgradeButton", unitsCard, "УЛУЧШИТЬ", new Vector2(0f, -250f), new Vector2(320f, 76f), new Color(0.72f, 0.40f, 0.12f, 1f));
     var upgBtnLabel = unitsCard.Find("UnitsUpgradeButton")?.Find("UnitsUpgradeButtonLabel")?.GetComponent<Text>();
     if (upgBtnLabel != null) { upgBtnLabel.fontSize = 24; upgBtnLabel.color = new Color(0.98f, 0.95f, 0.88f); }
+    EnsureButton("ResetProgressButton", unitsCard, "RESET", new Vector2(0f, -330f), new Vector2(220f, 52f), new Color(0.50f, 0.24f, 0.18f, 1f));
+
+    var statsRect = statsCard.GetComponent<RectTransform>();
+    if (statsRect != null)
+    {
+        statsRect.anchoredPosition = new Vector2(0f, -105f);
+        statsRect.sizeDelta = new Vector2(560f, 270f);
+    }
+
+    SetRectTransform(statsCard.Find("UnitsStatsTitle") as RectTransform, new Vector2(0f, 106f), new Vector2(320f, 32f));
+
+    // ===== Сетка статистик: [Метка | Значение | Цена: | ЦенаЧисло | Кнопка] =====
+    // Карточка 560пх, центр (0,0), диапазоны X:
+    // Метка  (MiddleRight): center=-95, w=155 → rect [-172.5 .. -17.5], правый край=-17.5
+    // Значение (MiddleLeft): center=18, w=50  → rect [-7 .. 43], левый край=-7  → зазор=10.5px ✓
+    // "Cost:" (MiddleRight): center=88, w=68  → rect [54 .. 122], правый край=122
+    // ЦенаЧисло (MiddleLeft): center=138, w=46 → rect [115 .. 161], левый край=115 → зазор=7px ✓
+    // Кнопка (center):       center=218, w=100 → rect [168 .. 268], левый край=168 → зазор=7px ✓
+    // Строки: y=40 (HP), y=-12 (ATK), y=-64 (MANA)
+
+    // --- Строка HP (y=40) ---
+    SetRectTransform(statsCard.Find("UnitsUpgradeLabel")     as RectTransform, new Vector2(-95f,  40f), new Vector2(155f, 30f));
+    SetRectTransform(statsCard.Find("UnitsHealthValue")      as RectTransform, new Vector2( 18f,  40f), new Vector2( 50f, 30f));
+    SetRectTransform(statsCard.Find("UnitsUpgradeCostLabel") as RectTransform, new Vector2( 88f,  40f), new Vector2( 68f, 26f));
+    SetRectTransform(statsCard.Find("UnitsUpgradeCost")      as RectTransform, new Vector2(138f,  40f), new Vector2( 46f, 26f));
+    // HP+ кнопка — в unitsCard; y = statsCard_y(-105) + row_y(40) = -65
+    SetRectTransform(unitsCard.Find("UnitsUpgradeButton")    as RectTransform, new Vector2(218f, -65f), new Vector2(100f, 36f));
+    var compactHpLabel = unitsCard.Find("UnitsUpgradeButton")?.Find("UnitsUpgradeButtonLabel")?.GetComponent<Text>();
+    if (compactHpLabel != null) { compactHpLabel.text = "HP +"; compactHpLabel.fontSize = 17; }
+
+    // --- Строка ATK (y=-12) ---
+    SetRectTransform(statsCard.Find("UnitsDamageLabel")         as RectTransform, new Vector2(-95f, -12f), new Vector2(155f, 30f));
+    SetRectTransform(statsCard.Find("UnitsDamageValue")         as RectTransform, new Vector2( 18f, -12f), new Vector2( 50f, 30f));
+    SetRectTransform(statsCard.Find("UnitsDamageCostLabel")     as RectTransform, new Vector2( 88f, -12f), new Vector2( 68f, 26f));
+    SetRectTransform(statsCard.Find("UnitsDamageCost")          as RectTransform, new Vector2(138f, -12f), new Vector2( 46f, 26f));
+    SetRectTransform(statsCard.Find("UnitsDamageUpgradeButton") as RectTransform, new Vector2(218f, -12f), new Vector2(100f, 36f));
+
+    // --- Строка MANA (y=-64) ---
+    SetRectTransform(statsCard.Find("UnitsManaLabel")           as RectTransform, new Vector2(-95f, -64f), new Vector2(155f, 30f));
+    SetRectTransform(statsCard.Find("UnitsManaValue")           as RectTransform, new Vector2( 18f, -64f), new Vector2( 50f, 30f));
+    SetRectTransform(statsCard.Find("UnitsManaCostLabel")       as RectTransform, new Vector2( 88f, -64f), new Vector2( 68f, 26f));
+    SetRectTransform(statsCard.Find("UnitsManaCost")            as RectTransform, new Vector2(138f, -64f), new Vector2( 46f, 26f));
+    SetRectTransform(statsCard.Find("UnitsManaUpgradeButton")   as RectTransform, new Vector2(218f, -64f), new Vector2(100f, 36f));
+
+    // RESET под статкардом
+    SetRectTransform(unitsCard.Find("ResetProgressButton")      as RectTransform, new Vector2(0f, -255f), new Vector2(200f, 46f));
+
 
     // Цвета текста для экрана Юнитов
     SetTextColor("UnitsTitle", new Color(0.20f, 0.16f, 0.12f));
@@ -614,6 +685,14 @@ namespace WarOfTheTotems.Gameplay
     SetTextColor("UnitsUpgradeCostLabel", new Color(0.32f, 0.29f, 0.24f));
     SetTextColor("UnitsHealthValue", new Color(0.16f, 0.58f, 0.26f));
     SetTextColor("UnitsUpgradeCost", new Color(0.82f, 0.48f, 0.14f));
+    SetTextColor("UnitsDamageLabel", new Color(0.20f, 0.18f, 0.16f));
+    SetTextColor("UnitsDamageCostLabel", new Color(0.32f, 0.29f, 0.24f));
+    SetTextColor("UnitsDamageValue", new Color(0.72f, 0.33f, 0.18f));
+    SetTextColor("UnitsDamageCost", new Color(0.82f, 0.48f, 0.14f));
+    SetTextColor("UnitsManaLabel", new Color(0.20f, 0.18f, 0.16f));
+    SetTextColor("UnitsManaCostLabel", new Color(0.32f, 0.29f, 0.24f));
+    SetTextColor("UnitsManaValue", new Color(0.18f, 0.40f, 0.70f));
+    SetTextColor("UnitsManaCost", new Color(0.82f, 0.48f, 0.14f));
 
     // Hub цвета текста
     SetTextColor("HubModeTitle", new Color(0.95f, 0.97f, 1.0f));
@@ -649,10 +728,17 @@ namespace WarOfTheTotems.Gameplay
             defeatTitleText = FindText("DefeatTitle");
             battleMenuTitleText = FindText("BattleMenuTitle");
             battleMenuDescriptionText = FindText("BattleMenuDescription");
+            battleLevelTitleText = FindText("Level01Title");
+            battleLevelEnemyText = FindText("Level01Enemy");
+            battleLevelPlayerText = FindText("Level01Player");
             battleLevelStatusText = FindText("Level01Status");
             unitsBalanceText = FindText("UnitsBalance");
             unitsUpgradeCostText = FindText("UnitsUpgradeCost");
             unitsHealthValueText = FindText("UnitsHealthValue");
+            unitsDamageValueText = FindText("UnitsDamageValue");
+            unitsDamageCostText = FindText("UnitsDamageCost");
+            unitsManaValueText = FindText("UnitsManaValue");
+            unitsManaCostText = FindText("UnitsManaCost");
 
             var evolutionOverlay = FindRect("EvolutionOverlay");
             evolutionPanel = evolutionOverlay;
@@ -670,9 +756,14 @@ namespace WarOfTheTotems.Gameplay
             beastSummonButton = BindButton(new[] { "Beast Totem (3)", "Beast Totem Summon" }, () => SpawnPlayerUnit(TotemType.Beast));
             defeatUnitsButton = BindButton(new[] { "DefeatUnitsButton" }, OpenUnitsAfterDefeat);
             unitsUpgradeButton = BindButton(new[] { "UnitsUpgradeButton" }, UpgradeBaseBearerHealth);
+            unitsDamageUpgradeButton = BindButton(new[] { "UnitsDamageUpgradeButton" }, UpgradeBaseBearerDamage);
+            unitsManaUpgradeButton = BindButton(new[] { "UnitsManaUpgradeButton" }, UpgradePrimalSparkCapacity);
+            resetProgressButton = BindButton(new[] { "ResetProgressButton" }, ResetProgress);
             unitsBattleButton = BindButton(new[] { "UnitsBattleButton" }, OpenLevelSelect);
-            hubBattleButton = BindButton(new[] { "HubBattleButton" }, StartTutorialBattle);
+            hubBattleButton = BindButton(new[] { "HubBattleButton" }, OpenPrimaryBattleEntry);
             levelStartButton = BindButton(new[] { "Level01StartButton" }, StartSelectedLevel);
+            levelPrevButton = BindButton(new[] { "LevelPrevButton" }, SelectPreviousLevel);
+            levelNextButton = BindButton(new[] { "LevelNextButton" }, SelectNextLevel);
             navHomeButton = BindButton(new[] { "NavHomeButton" }, () => SwitchScreen(ScreenMode.Hub));
             navUnitsButton = BindButton(new[] { "NavUnitsButton" }, () => SwitchScreen(ScreenMode.Units));
             navBattleButton = BindButton(new[] { "NavBattleButton" }, OpenLevelSelect);
@@ -789,7 +880,27 @@ namespace WarOfTheTotems.Gameplay
 
             if (unitsHealthValueText != null)
             {
-                unitsHealthValueText.text = $"{10 + state.baseBearerBonusHealth}";
+                unitsHealthValueText.text = $"{5 + state.baseBearerBonusHealth}";
+            }
+
+            if (unitsDamageValueText != null)
+            {
+                unitsDamageValueText.text = $"{1 + state.baseBearerBonusDamage}";
+            }
+
+            if (unitsDamageCostText != null)
+            {
+                unitsDamageCostText.text = $"{state.baseBearerDamageUpgradeCost}";
+            }
+
+            if (unitsManaValueText != null)
+            {
+                unitsManaValueText.text = $"{GetSelectedLevel().startingSpark + state.primalSparkBonus}";
+            }
+
+            if (unitsManaCostText != null)
+            {
+                unitsManaCostText.text = $"{state.primalSparkUpgradeCost}";
             }
 
             if (battleMenuTitleText != null)
@@ -817,7 +928,21 @@ namespace WarOfTheTotems.Gameplay
             if (battleMenuTitleText != null) battleMenuTitleText.text = "ВЫБОР УРОВНЯ";
             if (battleMenuDescriptionText != null) battleMenuDescriptionText.text = $"{GetSelectedLevel().title}: {GetSelectedLevel().description}";
             if (battleLevelStatusText != null) battleLevelStatusText.text = "ОТКРЫТ";
-            if (levelStartButton != null) levelStartButton.interactable = true;
+            var selectedLevel = GetSelectedLevel();
+            var selectedLevelNumber = selectedLevelIndex + 1;
+            var levelUnlocked = IsLevelUnlocked(selectedLevelIndex);
+
+            if (battleMenuTitleText != null) battleMenuTitleText.text = "ВЫБОР УРОВНЯ";
+            if (battleMenuDescriptionText != null) battleMenuDescriptionText.text = selectedLevel.description;
+            if (battleLevelTitleText != null) battleLevelTitleText.text = selectedLevel.title.ToUpperInvariant();
+            if (battleLevelEnemyText != null) battleLevelEnemyText.text = $"Башня врага: {selectedLevel.enemyBaseHealth} HP";
+            if (battleLevelPlayerText != null) battleLevelPlayerText.text = levelUnlocked
+                ? $"Награда: {selectedLevel.rewardCoins} мон."
+                : $"Откроется после уровня {Mathf.Max(1, selectedLevelNumber - 1)}";
+            if (battleLevelStatusText != null) battleLevelStatusText.text = levelUnlocked ? "ОТКРЫТ" : "ЗАКРЫТ";
+            if (levelStartButton != null) levelStartButton.interactable = levelUnlocked;
+            if (levelPrevButton != null) levelPrevButton.interactable = selectedLevelIndex > 0;
+            if (levelNextButton != null) levelNextButton.interactable = selectedLevelIndex < state.levels.Length - 1;
 
             RefreshBaseHealthOverlay(playerBaseWorldFill, playerBaseWorldText, state.playerBaseHealth, playerBaseMaxHealth);
             RefreshBaseHealthOverlay(enemyBaseWorldFill, enemyBaseWorldText, state.enemyBaseHealth, enemyBaseMaxHealth);
@@ -1095,6 +1220,16 @@ namespace WarOfTheTotems.Gameplay
             {
                 unitsUpgradeButton.interactable = state.upgradeCoins >= state.baseBearerHealthUpgradeCost;
             }
+
+            if (unitsDamageUpgradeButton != null)
+            {
+                unitsDamageUpgradeButton.interactable = state.upgradeCoins >= state.baseBearerDamageUpgradeCost;
+            }
+
+            if (unitsManaUpgradeButton != null)
+            {
+                unitsManaUpgradeButton.interactable = state.upgradeCoins >= state.primalSparkUpgradeCost;
+            }
         }
 
         private void UpdateSummonCard(Button button, string costTextName, string costLabel, bool canAfford)
@@ -1272,6 +1407,20 @@ namespace WarOfTheTotems.Gameplay
             fill.anchorMax = new Vector2(0f, 0.5f);
         }
 
+        private static void SetRectTransform(RectTransform rect, Vector2 anchoredPosition, Vector2 size)
+        {
+            if (rect == null)
+            {
+                return;
+            }
+
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = anchoredPosition;
+            rect.sizeDelta = size;
+        }
+
         private void RegenerateSpark(float deltaTime)
         {
             if (state.primalSpark >= state.primalSparkMax)
@@ -1342,6 +1491,11 @@ namespace WarOfTheTotems.Gameplay
                     state.highestUnlockedLevel = Mathf.Max(state.highestUnlockedLevel, 1);
                 }
 
+                if (activeLevel.id != "tutorial")
+                {
+                    state.highestUnlockedLevel = Mathf.Min(state.levels.Length, Mathf.Max(state.highestUnlockedLevel, selectedLevelIndex + 2));
+                }
+
                 state.upgradeCoins += Mathf.Max(1, activeLevel.rewardCoins);
                 SaveMetaProgress();
                 ShowBattleResult();
@@ -1380,14 +1534,89 @@ namespace WarOfTheTotems.Gameplay
             RefreshUi();
         }
 
+        private void UpgradeBaseBearerDamage()
+        {
+            if (state.upgradeCoins < state.baseBearerDamageUpgradeCost)
+            {
+                return;
+            }
+
+            state.upgradeCoins -= state.baseBearerDamageUpgradeCost;
+            state.baseBearerBonusDamage += 1;
+            state.baseBearerDamageUpgradeCost += 3;
+            SaveMetaProgress();
+            RefreshUi();
+        }
+
+        private void UpgradePrimalSparkCapacity()
+        {
+            if (state.upgradeCoins < state.primalSparkUpgradeCost)
+            {
+                return;
+            }
+
+            state.upgradeCoins -= state.primalSparkUpgradeCost;
+            state.primalSparkBonus += 1;
+            state.primalSparkUpgradeCost += 3;
+            SaveMetaProgress();
+            RefreshUi();
+        }
+
+        private void ResetProgress()
+        {
+            state.upgradeCoins = state.startingUpgradeCoins;
+            state.baseBearerBonusHealth = 0;
+            state.baseBearerHealthUpgradeCost = 5;
+            state.baseBearerBonusDamage = 0;
+            state.baseBearerDamageUpgradeCost = 4;
+            state.primalSparkBonus = 0;
+            state.primalSparkUpgradeCost = 4;
+            state.tutorialCompleted = false;
+            state.highestUnlockedLevel = 1;
+            selectedLevelIndex = 0;
+            activeLevel = GetSelectedLevel();
+            SaveMetaProgress();
+            SwitchScreen(ScreenMode.Hub);
+        }
+
+        private void OpenPrimaryBattleEntry()
+        {
+            if (state.tutorialCompleted)
+            {
+                OpenLevelSelect();
+                return;
+            }
+
+            StartTutorialBattle();
+        }
+
         private void OpenLevelSelect()
         {
             activeLevel = GetSelectedLevel();
             SwitchScreen(ScreenMode.Levels);
         }
 
+        private void SelectPreviousLevel()
+        {
+            selectedLevelIndex = Mathf.Max(0, selectedLevelIndex - 1);
+            activeLevel = GetSelectedLevel();
+            RefreshUi();
+        }
+
+        private void SelectNextLevel()
+        {
+            selectedLevelIndex = Mathf.Min(Mathf.Max(0, state.levels.Length - 1), selectedLevelIndex + 1);
+            activeLevel = GetSelectedLevel();
+            RefreshUi();
+        }
+
         private void StartSelectedLevel()
         {
+            if (!IsLevelUnlocked(selectedLevelIndex))
+            {
+                return;
+            }
+
             selectedLevelIndex = Mathf.Clamp(selectedLevelIndex, 0, Mathf.Max(0, state.levels.Length - 1));
             activeLevel = GetSelectedLevel();
             StartLevelBattle(activeLevel);
@@ -1406,8 +1635,8 @@ namespace WarOfTheTotems.Gameplay
                 1f,
                 3,
                 8f,
-                0,
-                0,
+                14,
+                1,
                 0,
                 0,
                 false,
@@ -1429,8 +1658,8 @@ namespace WarOfTheTotems.Gameplay
             activeLevel = level;
             state.playerBaseHealth = level.playerBaseHealth;
             state.enemyBaseHealth = level.enemyBaseHealth;
-            state.primalSpark = level.startingSpark;
-            state.primalSparkMax = Mathf.Max(level.startingSpark, 1);
+            state.primalSparkMax = Mathf.Max(level.startingSpark + state.primalSparkBonus, 1);
+            state.primalSpark = state.primalSparkMax;
             state.primalSparkRegenPerSecond = level.sparkRegenPerSecond;
             state.enemyWaveSize = Mathf.Max(1, level.enemyWaveSize);
             state.enemyWaveInterval = Mathf.Max(0.1f, level.enemyWaveInterval);
@@ -1448,13 +1677,22 @@ namespace WarOfTheTotems.Gameplay
             return state.levels[Mathf.Clamp(selectedLevelIndex, 0, state.levels.Length - 1)];
         }
 
+        private bool IsLevelUnlocked(int levelIndex)
+        {
+            return levelIndex <= Mathf.Max(0, state.highestUnlockedLevel - 1);
+        }
+
         private void LoadMetaProgress()
         {
             state.upgradeCoins = PlayerPrefs.GetInt("WarOfTheTotems.UpgradeCoins", state.startingUpgradeCoins);
             state.baseBearerBonusHealth = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerBonusHealth", 0);
             state.baseBearerHealthUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerUpgradeCost", 5);
+            state.baseBearerBonusDamage = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerBonusDamage", 0);
+            state.baseBearerDamageUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerDamageUpgradeCost", 4);
+            state.primalSparkBonus = PlayerPrefs.GetInt("WarOfTheTotems.PrimalSparkBonus", 0);
+            state.primalSparkUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.PrimalSparkUpgradeCost", 4);
             state.tutorialCompleted = PlayerPrefs.GetInt("WarOfTheTotems.TutorialCompleted", 0) == 1;
-            state.highestUnlockedLevel = Mathf.Max(1, PlayerPrefs.GetInt("WarOfTheTotems.HighestUnlockedLevel", 1));
+            state.highestUnlockedLevel = Mathf.Clamp(PlayerPrefs.GetInt("WarOfTheTotems.HighestUnlockedLevel", 1), 1, Mathf.Max(1, state.levels.Length));
         }
 
         private void SaveMetaProgress()
@@ -1462,6 +1700,10 @@ namespace WarOfTheTotems.Gameplay
             PlayerPrefs.SetInt("WarOfTheTotems.UpgradeCoins", state.upgradeCoins);
             PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerBonusHealth", state.baseBearerBonusHealth);
             PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerUpgradeCost", state.baseBearerHealthUpgradeCost);
+            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerBonusDamage", state.baseBearerBonusDamage);
+            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerDamageUpgradeCost", state.baseBearerDamageUpgradeCost);
+            PlayerPrefs.SetInt("WarOfTheTotems.PrimalSparkBonus", state.primalSparkBonus);
+            PlayerPrefs.SetInt("WarOfTheTotems.PrimalSparkUpgradeCost", state.primalSparkUpgradeCost);
             PlayerPrefs.SetInt("WarOfTheTotems.TutorialCompleted", state.tutorialCompleted ? 1 : 0);
             PlayerPrefs.SetInt("WarOfTheTotems.HighestUnlockedLevel", state.highestUnlockedLevel);
             PlayerPrefs.Save();

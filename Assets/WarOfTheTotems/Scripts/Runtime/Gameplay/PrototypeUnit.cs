@@ -224,7 +224,7 @@ namespace WarOfTheTotems.Gameplay
                     break;
                 default:
                     CurrentLabel = "BASE BEARER";
-                    maxHealth = controller.GetConfiguredUnitHealth(TeamSide.Player, TotemType.None, 10 + controller.BaseBearerBonusHealth);
+                    maxHealth = controller.GetConfiguredUnitHealth(TeamSide.Player, TotemType.None, 5 + controller.BaseBearerBonusHealth);
                     moveSpeed = 1.6f;
                     attackDamage = controller.GetConfiguredUnitDamage(TeamSide.Player, TotemType.None, 1);
                     attackInterval = 0.85f;

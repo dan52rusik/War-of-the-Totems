@@ -11,7 +11,7 @@ namespace WarOfTheTotems.Core
         public int enemyBaseHealth = 500;
 
         [Header("Resources")]
-        public int ancestralBone = 0;
+        public int ancestralBone;
         public int primalSpark = 10;
         public int primalSparkMax = 10;
         public float primalSparkRegenPerSecond = 1f;
@@ -28,8 +28,12 @@ namespace WarOfTheTotems.Core
         [Header("Meta Progression")]
         public int startingUpgradeCoins = 5;
         public int upgradeCoins = 5;
-        public int baseBearerBonusHealth = 0;
+        public int baseBearerBonusHealth;
         public int baseBearerHealthUpgradeCost = 5;
+        public int baseBearerBonusDamage;
+        public int baseBearerDamageUpgradeCost = 4;
+        public int primalSparkBonus;
+        public int primalSparkUpgradeCost = 4;
         public bool tutorialCompleted;
         public int highestUnlockedLevel = 1;
 
@@ -44,7 +48,21 @@ namespace WarOfTheTotems.Core
         [Header("Levels")]
         public BattleLevelDefinition[] levels =
         {
-            new("lvl_01", "Уровень 1", "Первый бой после обучения", 3, 5, 4, 2, 0f, 1, 999f, 5, 5, 4, 4, false, false),
+            new("lvl_01", "Уровень 1", "Первый бой после обучения", 3, 5, 4, 2, 0f, 1, 999f, 5, 1, 4, 4, false, false),
+            new("lvl_02", "Уровень 2", "Чуть крепче враг и башня", 3, 5, 6, 2, 0f, 1, 999f, 5, 1, 5, 4, false, false),
+            new("lvl_03", "Уровень 3", "Нужно пережить более сильный удар", 4, 6, 8, 2, 0f, 1, 999f, 5, 1, 6, 5, false, false),
+            new("lvl_04", "Уровень 4", "Башня врага крепче, награда выше", 4, 6, 10, 2, 0f, 1, 999f, 5, 1, 6, 5, false, false),
+            new("lvl_05", "Уровень 5", "Первый настоящий барьер", 5, 7, 12, 2, 0f, 1, 999f, 5, 1, 7, 5, false, false),
+            new("lvl_06", "Уровень 6", "Враги становятся живучее", 5, 7, 14, 3, 0f, 1, 999f, 5, 1, 8, 5, false, false),
+            new("lvl_07", "Уровень 7", "Долгий размен на линии", 6, 8, 16, 3, 0f, 1, 999f, 5, 1, 8, 6, false, false),
+            new("lvl_08", "Уровень 8", "Проверка прокачки здоровья", 6, 8, 18, 3, 0f, 1, 999f, 5, 1, 9, 6, false, false),
+            new("lvl_09", "Уровень 9", "Башня держится дольше", 7, 9, 20, 3, 0f, 1, 999f, 5, 1, 10, 6, false, false),
+            new("lvl_10", "Уровень 10", "Нужен заметный запас силы", 7, 9, 22, 3, 0f, 1, 999f, 5, 1, 10, 7, false, false),
+            new("lvl_11", "Уровень 11", "Враг переживает больше ударов", 8, 10, 24, 3, 0f, 1, 999f, 5, 1, 11, 7, false, false),
+            new("lvl_12", "Уровень 12", "Слабость без фарма уже накажет", 8, 10, 26, 3, 0f, 1, 999f, 5, 1, 12, 7, false, false),
+            new("lvl_13", "Уровень 13", "Финишная серия начинается", 9, 11, 28, 4, 0f, 1, 999f, 5, 1, 12, 8, false, false),
+            new("lvl_14", "Уровень 14", "Почти максимум для базового бойца", 9, 11, 30, 4, 0f, 1, 999f, 5, 1, 13, 8, false, false),
+            new("lvl_15", "Уровень 15", "Финал первой линейки боев", 10, 12, 35, 4, 0f, 1, 999f, 5, 1, 14, 8, false, false),
         };
     }
 
