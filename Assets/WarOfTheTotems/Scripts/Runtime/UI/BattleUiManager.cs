@@ -284,12 +284,12 @@ namespace WarOfTheTotems.UI
 
         public void SetScreen(ScreenId screen, bool isPlaying, Transform gameplayRoot)
         {
-            UiBuilder.SetVisible(hubPanel, screen == ScreenId.Hub);
+            UiBuilder.SetVisible(hubPanel, screen == ScreenId.Hub || screen == ScreenId.Intro);
             UiBuilder.SetVisible(levelSelectPanel, screen == ScreenId.Levels);
             UiBuilder.SetVisible(unitsPanel, screen == ScreenId.Units);
             UiBuilder.SetVisible(topBarPanel, screen == ScreenId.Battle);
             UiBuilder.SetVisible(battleHudPanel, screen == ScreenId.Battle);
-            UiBuilder.SetVisible(bottomNavPanel, screen != ScreenId.Battle);
+            UiBuilder.SetVisible(bottomNavPanel, screen != ScreenId.Battle && screen != ScreenId.Intro);
             UiBuilder.SetVisible(evolutionPanel, screen == ScreenId.Battle && isPlaying);
 
             if (gameplayRoot != null && isPlaying)
@@ -297,7 +297,7 @@ namespace WarOfTheTotems.UI
                 gameplayRoot.gameObject.SetActive(screen == ScreenId.Battle);
             }
 
-            if (screen == ScreenId.Hub)
+            if (screen == ScreenId.Hub || screen == ScreenId.Intro)
             {
                 SetResultVisible(false);
             }

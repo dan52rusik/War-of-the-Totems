@@ -262,7 +262,15 @@ namespace WarOfTheTotems.Gameplay
             RefreshUi();
             SetEvolutionUI(false, string.Empty, 0f);
             battleUi.SetResultVisible(false);
-            SwitchScreen(ScreenId.Hub);
+            
+            if (!progression.TutorialCompleted)
+            {
+                SwitchScreen(ScreenId.Intro);
+            }
+            else
+            {
+                SwitchScreen(ScreenId.Hub);
+            }
         }
 
         private void Update()
@@ -1694,19 +1702,19 @@ namespace WarOfTheTotems.Gameplay
 
         private void ApplyScreenVisibility()
         {
-            SetPanelVisible(hubPanel, screenMode == ScreenId.Hub);
-            SetPanelVisible(hubCardPanel, screenMode == ScreenId.Hub && !progression.TutorialCompleted);
+            SetPanelVisible(hubPanel, screenMode == ScreenId.Hub || screenMode == ScreenId.Intro);
+            SetPanelVisible(hubCardPanel, screenMode == ScreenId.Intro);
             SetPanelVisible(levelSelectPanel, screenMode == ScreenId.Levels);
             SetPanelVisible(unitsPanel, screenMode == ScreenId.Units);
             SetPanelVisible(topBarPanel, screenMode == ScreenId.Battle);
             SetPanelVisible(battleHudPanel, screenMode == ScreenId.Battle);
-            SetPanelVisible(bottomNavPanel, screenMode != ScreenId.Battle);
+            SetPanelVisible(bottomNavPanel, screenMode != ScreenId.Battle && screenMode != ScreenId.Intro);
             SetPanelVisible(evolutionPanel, screenMode == ScreenId.Battle && Application.isPlaying);
             if (gameplayRoot != null && Application.isPlaying)
             {
                 gameplayRoot.gameObject.SetActive(screenMode == ScreenId.Battle);
             }
-            if (screenMode == ScreenId.Hub)
+            if (screenMode == ScreenId.Hub || screenMode == ScreenId.Intro)
             {
                 SetPanelVisible(defeatPanel, false);
             }

@@ -14,5 +14,5 @@ namespace WarOfTheTotems.Core
     /// <summary>
     /// Идентификатор текущего экрана.
     /// </summary>
-    public enum ScreenId { Hub, Levels, Units, Battle }
+    public enum ScreenId { Intro, Hub, Levels, Units, Battle }
 }
