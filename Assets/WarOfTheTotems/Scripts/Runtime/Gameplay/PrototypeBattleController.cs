@@ -4,6 +4,10 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 using WarOfTheTotems.Core;
+using WarOfTheTotems.Core.Data;
+using WarOfTheTotems.Core.State;
+using WarOfTheTotems.Systems;
+using WarOfTheTotems.Units;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -12,7 +16,7 @@ namespace WarOfTheTotems.Gameplay
 {
     [ExecuteAlways]
     [DisallowMultipleComponent]
-    public sealed class PrototypeBattleController : MonoBehaviour
+    public sealed class PrototypeBattleController : MonoBehaviour, IBattleCallbacks
     {
         private enum ScreenMode
         {
@@ -30,9 +34,13 @@ namespace WarOfTheTotems.Gameplay
         private const float PlayerBaseX = -6.1f;
         private const float EnemyBaseX = 6.1f;
 
-        private readonly List<PrototypeUnit> units = new();
+        private readonly List<Unit> units = new();
 
-        private BattlePrototypeState state = null!;
+        private BattlePrototypeState state = null!; // Оставим пока для levels и evolution
+        private MetaProgressionState metaState = null!;
+        private ProgressionSystem progression = new();
+        private BattleSessionState session = new();
+
         private Transform gameplayRoot = null!;
         private Canvas mainCanvas = null!;
         private Text playerHealthText = null!;
@@ -97,42 +105,14 @@ namespace WarOfTheTotems.Gameplay
         private bool unitsOpenedOnce;
         private int selectedLevelIndex;
         private ScreenMode screenMode;
-        private BattleLevelDefinition activeLevel;
+        private LevelDefinition activeLevel;
 
         public float EvolutionDuration => state.evolutionDuration;
-        public int BaseBearerBonusHealth => state.baseBearerBonusHealth;
+        public int BaseBearerBonusHealth => progression.BonusHealth;
         public bool StoneTotemUnlocked => activeLevel.allowStoneTotem;
         public bool BeastTotemUnlocked => activeLevel.allowBeastTotem;
 
-        public int GetConfiguredUnitHealth(TeamSide team, TotemType totem, int defaultValue)
-        {
-            if (team == TeamSide.Player && totem == TotemType.None && activeLevel.playerBaseBearerHealth > 0)
-            {
-                return activeLevel.playerBaseBearerHealth + state.baseBearerBonusHealth;
-            }
 
-            if (team == TeamSide.Enemy && totem == TotemType.Shadow && activeLevel.enemyShadowHealth > 0)
-            {
-                return activeLevel.enemyShadowHealth;
-            }
-
-            return defaultValue;
-        }
-
-        public int GetConfiguredUnitDamage(TeamSide team, TotemType totem, int defaultValue)
-        {
-            if (team == TeamSide.Player && totem == TotemType.None && activeLevel.playerBaseBearerDamage > 0)
-            {
-                return activeLevel.playerBaseBearerDamage + state.baseBearerBonusDamage;
-            }
-
-            if (team == TeamSide.Enemy && totem == TotemType.Shadow && activeLevel.enemyShadowDamage > 0)
-            {
-                return activeLevel.enemyShadowDamage;
-            }
-
-            return defaultValue;
-        }
 
         private void Awake()
         {
@@ -217,7 +197,18 @@ namespace WarOfTheTotems.Gameplay
                 state = gameObject.AddComponent<BattlePrototypeState>();
             }
 
-            LoadMetaProgress();
+            metaState = GetComponent<MetaProgressionState>();
+            if (metaState == null)
+            {
+                metaState = gameObject.AddComponent<MetaProgressionState>();
+            }
+
+            progression.Bind(metaState, state.levels.Length);
+            progression.Load();
+            
+            // Заглушка, выпилим старый позже, так как все мета-данные теперь в metaState
+            // LoadMetaProgress(); 
+
             selectedLevelIndex = Mathf.Clamp(selectedLevelIndex, 0, Mathf.Max(0, state.levels.Length - 1));
             activeLevel = GetSelectedLevel();
             playerBaseMaxHealth = Mathf.Max(1, state.playerBaseHealth);
@@ -283,9 +274,9 @@ namespace WarOfTheTotems.Gameplay
             return Mathf.Abs(worldPosition.x - EvolutionZoneX) <= EvolutionZoneRadius;
         }
 
-        public PrototypeUnit FindClosestEnemy(PrototypeUnit requester, float range)
+        public Unit FindClosestEnemy(Unit requester, float range)
         {
-            PrototypeUnit best = null;
+            Unit best = null;
             var bestDistance = float.MaxValue;
             const float laneTolerance = 0.1f;
 
@@ -317,7 +308,7 @@ namespace WarOfTheTotems.Gameplay
             return best;
         }
 
-        public bool IsAtEnemyBase(PrototypeUnit unit)
+        public bool IsAtEnemyBase(Unit unit)
         {
             return unit.Team == TeamSide.Player
                 ? unit.transform.position.x >= EnemyBaseX
@@ -328,24 +319,29 @@ namespace WarOfTheTotems.Gameplay
         {
             if (side == TeamSide.Player)
             {
-                state.playerBaseHealth = Mathf.Max(0, state.playerBaseHealth - amount);
+                session.DamagePlayerBase(amount);
             }
             else
             {
-                state.enemyBaseHealth = Mathf.Max(0, state.enemyBaseHealth - amount);
+                session.DamageEnemyBase(amount);
             }
         }
 
-        public void NotifyUnitKilled(PrototypeUnit deadUnit)
+        public void NotifyUnitKilled(Unit deadUnit)
         {
             if (deadUnit.Team == TeamSide.Enemy)
             {
-                state.ancestralBone += 1;
-                state.upgradeCoins += 1;
-                SaveMetaProgress();
+                session.GainBone(1);
+                progression.AwardCoins(1);
             }
 
             units.Remove(deadUnit);
+        }
+
+        public void NotifyUnitEvolved(Unit unit)
+        {
+            var stats = UnitFactory.BuildStats(unit.Team, unit.AssignedTotem, session, progression);
+            unit.ReinitializeStats(stats);
         }
 
         public void SetEvolutionUI(bool visible, string label, float progress)
@@ -408,8 +404,8 @@ namespace WarOfTheTotems.Gameplay
             }
 
             var option = GetSummonOption(totem);
-            state.primalSpark -= option.sparkCost;
-            state.ancestralBone -= option.boneCost;
+            session.TrySpendSpark(option.sparkCost);
+            session.TrySpendBone(option.boneCost);
             SpawnUnit(TeamSide.Player, totem, false, new Vector3(PlayerSpawnX, LaneY, 0f));
         }
 
@@ -420,8 +416,9 @@ namespace WarOfTheTotems.Gameplay
             unitRoot.transform.position = position;
 
             CreateUnitVisual(unitRoot.transform);
-            var unit = unitRoot.AddComponent<PrototypeUnit>();
-            unit.Initialize(this, team, totem, evolved);
+            var unit = unitRoot.AddComponent<Unit>();
+            var stats = UnitFactory.BuildStats(team, totem, session, progression);
+            unit.Initialize(this, team, totem, stats, evolved);
             units.Add(unit);
         }
 
@@ -817,28 +814,28 @@ namespace WarOfTheTotems.Gameplay
         {
             if (playerHealthText != null)
             {
-                playerHealthText.text = $"{state.playerBaseHealth} (YOU)";
+                playerHealthText.text = $"{session.PlayerBaseHealth} (YOU)";
             }
 
             if (enemyHealthText != null)
             {
-                enemyHealthText.text = $"{state.enemyBaseHealth} (THEM)";
+                enemyHealthText.text = $"{session.EnemyBaseHealth} (THEM)";
             }
 
             if (boneText != null)
             {
-                boneText.text = $"BONE: {state.ancestralBone}";
+                boneText.text = $"BONE: {session.AncestralBone}";
             }
 
             if (sparkTopText != null)
             {
-                sparkTopText.text = $"SPARK: {state.primalSpark}/{state.primalSparkMax}";
+                sparkTopText.text = $"SPARK: {session.PrimalSpark}/{session.PrimalSparkMax}";
             }
 
             if (sparkBottomText != null)
             {
                 sparkBottomText.text = screenMode == ScreenMode.Battle
-                    ? $"PRIMAL SPARK: {state.primalSpark}/{state.primalSparkMax}"
+                    ? $"PRIMAL SPARK: {session.PrimalSpark}/{session.PrimalSparkMax}"
                     : string.Empty;
             }
 
@@ -870,59 +867,59 @@ namespace WarOfTheTotems.Gameplay
 
             if (unitsBalanceText != null)
             {
-                unitsBalanceText.text = $"COINS: {state.upgradeCoins}";
+                unitsBalanceText.text = $"COINS: {progression.Coins}";
             }
 
             if (unitsUpgradeCostText != null)
             {
-                unitsUpgradeCostText.text = $"{state.baseBearerHealthUpgradeCost}";
+                unitsUpgradeCostText.text = $"{progression.HealthUpgradeCost}";
             }
 
             if (unitsHealthValueText != null)
             {
-                unitsHealthValueText.text = $"{5 + state.baseBearerBonusHealth}";
+                unitsHealthValueText.text = $"{5 + progression.BonusHealth}";
             }
 
             if (unitsDamageValueText != null)
             {
-                unitsDamageValueText.text = $"{1 + state.baseBearerBonusDamage}";
+                unitsDamageValueText.text = $"{1 + progression.BonusDamage}";
             }
 
             if (unitsDamageCostText != null)
             {
-                unitsDamageCostText.text = $"{state.baseBearerDamageUpgradeCost}";
+                unitsDamageCostText.text = $"{progression.DamageUpgradeCost}";
             }
 
             if (unitsManaValueText != null)
             {
-                unitsManaValueText.text = $"{GetSelectedLevel().startingSpark + state.primalSparkBonus}";
+                unitsManaValueText.text = $"{GetSelectedLevel().startingSpark + progression.SparkBonus}";
             }
 
             if (unitsManaCostText != null)
             {
-                unitsManaCostText.text = $"{state.primalSparkUpgradeCost}";
+                unitsManaCostText.text = $"{progression.SparkUpgradeCost}";
             }
 
             if (battleMenuTitleText != null)
             {
-                battleMenuTitleText.text = state.tutorialCompleted ? "ВЫБОР УРОВНЯ" : "ОБУЧЕНИЕ";
+                battleMenuTitleText.text = progression.TutorialCompleted ? "ВЫБОР УРОВНЯ" : "ОБУЧЕНИЕ";
             }
 
             if (battleMenuDescriptionText != null)
             {
-                battleMenuDescriptionText.text = state.tutorialCompleted
+                battleMenuDescriptionText.text = progression.TutorialCompleted
                     ? $"{activeLevel.title}: {activeLevel.description}"
                     : "Сначала пройди показательный бой, затем откроется уровень 1.";
             }
 
             if (battleLevelStatusText != null)
             {
-                battleLevelStatusText.text = state.tutorialCompleted ? "ОТКРЫТ" : "ОТКРОЕТСЯ ПОСЛЕ ОБУЧЕНИЯ";
+                battleLevelStatusText.text = progression.TutorialCompleted ? "ОТКРЫТ" : "ОТКРОЕТСЯ ПОСЛЕ ОБУЧЕНИЯ";
             }
 
             if (levelStartButton != null)
             {
-                levelStartButton.interactable = state.tutorialCompleted;
+                levelStartButton.interactable = progression.TutorialCompleted;
             }
 
             if (battleMenuTitleText != null) battleMenuTitleText.text = "ВЫБОР УРОВНЯ";
@@ -944,8 +941,8 @@ namespace WarOfTheTotems.Gameplay
             if (levelPrevButton != null) levelPrevButton.interactable = selectedLevelIndex > 0;
             if (levelNextButton != null) levelNextButton.interactable = selectedLevelIndex < state.levels.Length - 1;
 
-            RefreshBaseHealthOverlay(playerBaseWorldFill, playerBaseWorldText, state.playerBaseHealth, playerBaseMaxHealth);
-            RefreshBaseHealthOverlay(enemyBaseWorldFill, enemyBaseWorldText, state.enemyBaseHealth, enemyBaseMaxHealth);
+            RefreshBaseHealthOverlay(playerBaseWorldFill, playerBaseWorldText, session.PlayerBaseHealth, playerBaseMaxHealth);
+            RefreshBaseHealthOverlay(enemyBaseWorldFill, enemyBaseWorldText, session.EnemyBaseHealth, enemyBaseMaxHealth);
             RefreshSummonUi();
         }
 
@@ -1423,14 +1420,13 @@ namespace WarOfTheTotems.Gameplay
 
         private void RegenerateSpark(float deltaTime)
         {
-            if (state.primalSpark >= state.primalSparkMax)
+            if (session.PrimalSpark >= session.PrimalSparkMax)
             {
-                state.primalSpark = state.primalSparkMax;
                 sparkAccumulator = 0f;
                 return;
             }
 
-            sparkAccumulator += state.primalSparkRegenPerSecond * deltaTime;
+            sparkAccumulator += activeLevel.sparkRegenPerSecond * deltaTime;
             if (sparkAccumulator < 1f)
             {
                 return;
@@ -1438,7 +1434,7 @@ namespace WarOfTheTotems.Gameplay
 
             var gained = Mathf.FloorToInt(sparkAccumulator);
             sparkAccumulator -= gained;
-            state.primalSpark = Mathf.Min(state.primalSparkMax, state.primalSpark + gained);
+            session.GainSpark(gained);
         }
 
         private bool CanAfford(TotemType totem)
@@ -1446,7 +1442,7 @@ namespace WarOfTheTotems.Gameplay
             if (totem == TotemType.Stone && !StoneTotemUnlocked) return false;
             if (totem == TotemType.Beast && !BeastTotemUnlocked) return false;
             var option = GetSummonOption(totem);
-            return state.primalSpark >= option.sparkCost && state.ancestralBone >= option.boneCost;
+            return session.PrimalSpark >= option.sparkCost && session.AncestralBone >= option.boneCost;
         }
 
         private SummonOption GetSummonOption(TotemType totem)
@@ -1462,10 +1458,7 @@ namespace WarOfTheTotems.Gameplay
         private void ApplyEditorPreview()
         {
             battleEnded = false;
-            state.playerBaseHealth = Mathf.Max(1, playerBaseMaxHealth);
-            state.enemyBaseHealth = Mathf.Max(1, enemyBaseMaxHealth);
-            state.primalSpark = state.primalSparkMax;
-            state.ancestralBone = 0;
+            session.BeginBattle(activeLevel, progression.SparkBonus);
 
             SetEvolutionUI(true, "EVOLVING: STONE GUARD", 0.58f);
             SetPanelVisible(defeatPanel, false);
@@ -1481,26 +1474,24 @@ namespace WarOfTheTotems.Gameplay
 
         private void CheckBattleState()
         {
-            if (state.enemyBaseHealth <= 0)
+            if (session.IsEnemyBaseDead)
             {
                 battleEnded = true;
                 playerWon = true;
-                if (!state.tutorialCompleted)
+                if (!progression.TutorialCompleted)
                 {
-                    state.tutorialCompleted = true;
-                    state.highestUnlockedLevel = Mathf.Max(state.highestUnlockedLevel, 1);
+                    progression.MarkTutorialComplete();
                 }
 
                 if (activeLevel.id != "tutorial")
                 {
-                    state.highestUnlockedLevel = Mathf.Min(state.levels.Length, Mathf.Max(state.highestUnlockedLevel, selectedLevelIndex + 2));
+                    progression.UnlockLevel(selectedLevelIndex + 1);
                 }
 
-                state.upgradeCoins += Mathf.Max(1, activeLevel.rewardCoins);
-                SaveMetaProgress();
+                progression.AwardCoins(Mathf.Max(1, activeLevel.rewardCoins));
                 ShowBattleResult();
             }
-            else if (state.playerBaseHealth <= 0)
+            else if (session.IsPlayerBaseDead)
             {
                 battleEnded = true;
                 playerWon = false;
@@ -1522,60 +1513,33 @@ namespace WarOfTheTotems.Gameplay
 
         private void UpgradeBaseBearerHealth()
         {
-            if (state.upgradeCoins < state.baseBearerHealthUpgradeCost)
+            if (progression.TryUpgradeHealth())
             {
-                return;
+                RefreshUi();
             }
-
-            state.upgradeCoins -= state.baseBearerHealthUpgradeCost;
-            state.baseBearerBonusHealth += 4;
-            state.baseBearerHealthUpgradeCost += 3;
-            SaveMetaProgress();
-            RefreshUi();
         }
 
         private void UpgradeBaseBearerDamage()
         {
-            if (state.upgradeCoins < state.baseBearerDamageUpgradeCost)
+            if (progression.TryUpgradeDamage())
             {
-                return;
+                RefreshUi();
             }
-
-            state.upgradeCoins -= state.baseBearerDamageUpgradeCost;
-            state.baseBearerBonusDamage += 1;
-            state.baseBearerDamageUpgradeCost += 3;
-            SaveMetaProgress();
-            RefreshUi();
         }
 
         private void UpgradePrimalSparkCapacity()
         {
-            if (state.upgradeCoins < state.primalSparkUpgradeCost)
+            if (progression.TryUpgradeSpark())
             {
-                return;
+                RefreshUi();
             }
-
-            state.upgradeCoins -= state.primalSparkUpgradeCost;
-            state.primalSparkBonus += 1;
-            state.primalSparkUpgradeCost += 3;
-            SaveMetaProgress();
-            RefreshUi();
         }
 
         private void ResetProgress()
         {
-            state.upgradeCoins = state.startingUpgradeCoins;
-            state.baseBearerBonusHealth = 0;
-            state.baseBearerHealthUpgradeCost = 5;
-            state.baseBearerBonusDamage = 0;
-            state.baseBearerDamageUpgradeCost = 4;
-            state.primalSparkBonus = 0;
-            state.primalSparkUpgradeCost = 4;
-            state.tutorialCompleted = false;
-            state.highestUnlockedLevel = 1;
+            progression.ResetAll();
             selectedLevelIndex = 0;
             activeLevel = GetSelectedLevel();
-            SaveMetaProgress();
             SwitchScreen(ScreenMode.Hub);
         }
 
@@ -1624,28 +1588,12 @@ namespace WarOfTheTotems.Gameplay
 
         private void StartTutorialBattle()
         {
-            activeLevel = new BattleLevelDefinition(
-                "tutorial",
-                "Обучение",
-                "Показательный бой",
-                5,
-                5,
-                500,
-                10,
-                1f,
-                3,
-                8f,
-                14,
-                1,
-                0,
-                0,
-                false,
-                false);
+            activeLevel = LevelDefinition.Tutorial();
 
             StartLevelBattle(activeLevel);
         }
 
-        private void StartLevelBattle(BattleLevelDefinition level)
+        private void StartLevelBattle(LevelDefinition level)
         {
             ApplyLevelState(level);
             ResetBattleState();
@@ -1653,61 +1601,37 @@ namespace WarOfTheTotems.Gameplay
             SpawnEnemyWave();
         }
 
-        private void ApplyLevelState(BattleLevelDefinition level)
+        private void ApplyLevelState(LevelDefinition level)
         {
             activeLevel = level;
-            state.playerBaseHealth = level.playerBaseHealth;
-            state.enemyBaseHealth = level.enemyBaseHealth;
-            state.primalSparkMax = Mathf.Max(level.startingSpark + state.primalSparkBonus, 1);
-            state.primalSpark = state.primalSparkMax;
-            state.primalSparkRegenPerSecond = level.sparkRegenPerSecond;
-            state.enemyWaveSize = Mathf.Max(1, level.enemyWaveSize);
-            state.enemyWaveInterval = Mathf.Max(0.1f, level.enemyWaveInterval);
+            session.BeginBattle(level, progression.SparkBonus);
+
             playerBaseMaxHealth = Mathf.Max(1, level.playerBaseHealth);
             enemyBaseMaxHealth = Mathf.Max(1, level.enemyBaseHealth);
         }
 
-        private BattleLevelDefinition GetSelectedLevel()
+        private LevelDefinition GetSelectedLevel()
         {
             if (state.levels == null || state.levels.Length == 0)
             {
                 return default;
             }
 
-            return state.levels[Mathf.Clamp(selectedLevelIndex, 0, state.levels.Length - 1)];
+            var definition = state.levels[Mathf.Clamp(selectedLevelIndex, 0, state.levels.Length - 1)];
+            return new LevelDefinition(
+                definition.id, definition.title, definition.description,
+                definition.rewardCoins, definition.playerBaseHealth, definition.enemyBaseHealth,
+                definition.startingSpark, definition.sparkRegenPerSecond, definition.enemyWaveSize,
+                definition.enemyWaveInterval, definition.playerBaseBearerHealth, definition.playerBaseBearerDamage,
+                definition.enemyShadowHealth, definition.enemyShadowDamage, definition.allowStoneTotem, definition.allowBeastTotem);
         }
 
         private bool IsLevelUnlocked(int levelIndex)
         {
-            return levelIndex <= Mathf.Max(0, state.highestUnlockedLevel - 1);
+            return progression.IsLevelUnlocked(levelIndex);
         }
 
-        private void LoadMetaProgress()
-        {
-            state.upgradeCoins = PlayerPrefs.GetInt("WarOfTheTotems.UpgradeCoins", state.startingUpgradeCoins);
-            state.baseBearerBonusHealth = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerBonusHealth", 0);
-            state.baseBearerHealthUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerUpgradeCost", 5);
-            state.baseBearerBonusDamage = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerBonusDamage", 0);
-            state.baseBearerDamageUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerDamageUpgradeCost", 4);
-            state.primalSparkBonus = PlayerPrefs.GetInt("WarOfTheTotems.PrimalSparkBonus", 0);
-            state.primalSparkUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.PrimalSparkUpgradeCost", 4);
-            state.tutorialCompleted = PlayerPrefs.GetInt("WarOfTheTotems.TutorialCompleted", 0) == 1;
-            state.highestUnlockedLevel = Mathf.Clamp(PlayerPrefs.GetInt("WarOfTheTotems.HighestUnlockedLevel", 1), 1, Mathf.Max(1, state.levels.Length));
-        }
-
-        private void SaveMetaProgress()
-        {
-            PlayerPrefs.SetInt("WarOfTheTotems.UpgradeCoins", state.upgradeCoins);
-            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerBonusHealth", state.baseBearerBonusHealth);
-            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerUpgradeCost", state.baseBearerHealthUpgradeCost);
-            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerBonusDamage", state.baseBearerBonusDamage);
-            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerDamageUpgradeCost", state.baseBearerDamageUpgradeCost);
-            PlayerPrefs.SetInt("WarOfTheTotems.PrimalSparkBonus", state.primalSparkBonus);
-            PlayerPrefs.SetInt("WarOfTheTotems.PrimalSparkUpgradeCost", state.primalSparkUpgradeCost);
-            PlayerPrefs.SetInt("WarOfTheTotems.TutorialCompleted", state.tutorialCompleted ? 1 : 0);
-            PlayerPrefs.SetInt("WarOfTheTotems.HighestUnlockedLevel", state.highestUnlockedLevel);
-            PlayerPrefs.Save();
-        }
+        // Удалили LoadMetaProgress и SaveMetaProgress (теперь в ProgressionSystem)
 
         private static Button EnsureButton(string name, Transform parent, string label, Vector2 anchoredPosition, Vector2 size, Color color)
         {
@@ -1764,10 +1688,7 @@ namespace WarOfTheTotems.Gameplay
             unitsOpenedOnce = false;
             sparkAccumulator = 0f;
             enemyWaveTimer = 0f;
-            state.primalSpark = state.primalSparkMax;
-            state.ancestralBone = 0;
-            state.playerBaseHealth = playerBaseMaxHealth;
-            state.enemyBaseHealth = enemyBaseMaxHealth;
+            // BeginBattle sets health and resources now
             ClearGameplayMarkers();
             EnsureBaseHealthOverlays();
             SetPanelVisible(defeatPanel, false);
