@@ -224,7 +224,7 @@ namespace WarOfTheTotems.Gameplay
                     break;
                 default:
                     CurrentLabel = "BASE BEARER";
-                    maxHealth = 10f;
+                    maxHealth = 10f + controller.BaseBearerBonusHealth;
                     moveSpeed = 1.6f;
                     attackDamage = 1f;
                     attackInterval = 0.85f;
@@ -247,21 +247,21 @@ namespace WarOfTheTotems.Gameplay
                 var renderer = renderers[i];
                 if (renderer.name.Contains("Weapon"))
                 {
-                    renderer.sharedMaterial.color = color * 0.72f;
+                    renderer.material.color = color * 0.72f;
                 }
                 else if (renderer.name.Contains("Head"))
                 {
-                    renderer.sharedMaterial.color = Color.Lerp(color, Color.white, 0.18f);
+                    renderer.material.color = Color.Lerp(color, Color.white, 0.18f);
                 }
                 else
                 {
-                    renderer.sharedMaterial.color = color;
+                    renderer.material.color = color;
                 }
             }
 
             if (weapon != null && weapon.TryGetComponent<MeshRenderer>(out var weaponRenderer))
             {
-                weaponRenderer.sharedMaterial.color = color * 0.75f;
+                weaponRenderer.material.color = color * 0.75f;
             }
 
             body.localScale = scale;

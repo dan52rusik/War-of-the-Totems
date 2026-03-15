@@ -4,12 +4,23 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 using WarOfTheTotems.Core;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace WarOfTheTotems.Gameplay
 {
+    [ExecuteAlways]
     [DisallowMultipleComponent]
     public sealed class PrototypeBattleController : MonoBehaviour
     {
+        private enum ScreenMode
+        {
+            Hub,
+            Battle,
+            Units,
+        }
+
         private const float PlayerSpawnX = -5.5f;
         private const float EnemySpawnX = 5.5f;
         private const float LaneY = -0.45f;
@@ -28,16 +39,125 @@ namespace WarOfTheTotems.Gameplay
         private Text boneText = null!;
         private Text sparkTopText = null!;
         private Text sparkBottomText = null!;
+        private Text controlsHintText = null!;
         private Text evolutionLabelText = null!;
+        private Text defeatMessageText = null!;
+        private Text defeatTitleText = null!;
+        private Text modeTitleText = null!;
+        private Text unitsBalanceText = null!;
+        private Text unitsUpgradeCostText = null!;
+        private Text unitsHealthValueText = null!;
         private RectTransform evolutionPanel = null!;
         private RectTransform evolutionFill = null!;
+        private RectTransform defeatPanel = null!;
+        private RectTransform unitsPanel = null!;
+        private RectTransform hubPanel = null!;
+        private RectTransform topBarPanel = null!;
+        private RectTransform battleHudPanel = null!;
+        private RectTransform bottomNavPanel = null!;
+        private Transform playerBaseWorldFill = null!;
+        private Transform enemyBaseWorldFill = null!;
+        private TextMesh playerBaseWorldText = null!;
+        private TextMesh enemyBaseWorldText = null!;
+        private Button baseSummonButton = null!;
+        private Button stoneSummonButton = null!;
+        private Button beastSummonButton = null!;
+        private Button defeatUnitsButton = null!;
+        private Button unitsUpgradeButton = null!;
+        private Button unitsBattleButton = null!;
+        private Button hubBattleButton = null!;
+        private Button navHomeButton = null!;
+        private Button navUnitsButton = null!;
+        private Button navBattleButton = null!;
 
         private float sparkAccumulator;
         private float enemyWaveTimer;
+        private int playerBaseMaxHealth;
+        private int enemyBaseMaxHealth;
+        private bool battleEnded;
+        private bool playerWon;
+        private bool unitsOpenedOnce;
+        private ScreenMode screenMode;
 
         public float EvolutionDuration => state.evolutionDuration;
+        public int BaseBearerBonusHealth => state.baseBearerBonusHealth;
 
         private void Awake()
+        {
+            EnsureCoreReferences();
+            CleanupSceneDuplicates();
+            gameplayRoot = EnsureChild("Gameplay");
+            ClearGameplayMarkers();
+            EnsureUiScaffold();
+            EnsureBaseHealthOverlays();
+            WireUi();
+            EnsureEventSystem();
+
+            if (Application.isPlaying)
+            {
+                playerBaseMaxHealth = Mathf.Max(1, state.playerBaseHealth);
+                enemyBaseMaxHealth = Mathf.Max(1, state.enemyBaseHealth);
+            }
+            else
+            {
+                ApplyEditorPreview();
+            }
+        }
+
+        private void OnEnable()
+        {
+            if (Application.isPlaying)
+            {
+                return;
+            }
+
+#if UNITY_EDITOR
+            EditorApplication.delayCall += EditorRebuild;
+#endif
+        }
+
+        private void OnValidate()
+        {
+            if (Application.isPlaying)
+            {
+                return;
+            }
+
+#if UNITY_EDITOR
+            // DestroyImmediate and SetActive are forbidden inside OnValidate.
+            // Defer everything to the next editor tick.
+            EditorApplication.delayCall += EditorRebuild;
+#endif
+        }
+
+#if UNITY_EDITOR
+        private void EditorRebuild()
+        {
+            EditorApplication.delayCall -= EditorRebuild;
+
+            // The component may have been destroyed while waiting.
+            if (this == null || gameObject == null)
+            {
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                return;
+            }
+
+            EnsureCoreReferences();
+            CleanupSceneDuplicates();
+            gameplayRoot = EnsureChild("Gameplay");
+            ClearGameplayMarkers();
+            EnsureUiScaffold();
+            EnsureBaseHealthOverlays();
+            WireUi();
+            ApplyEditorPreview();
+        }
+#endif
+
+        private void EnsureCoreReferences()
         {
             state = GetComponent<BattlePrototypeState>();
             if (state == null)
@@ -45,26 +165,49 @@ namespace WarOfTheTotems.Gameplay
                 state = gameObject.AddComponent<BattlePrototypeState>();
             }
 
-            gameplayRoot = EnsureChild("Gameplay");
-            ClearGameplayMarkers();
-            EnsureUiScaffold();
-            WireUi();
-            EnsureEventSystem();
+            LoadMetaProgress();
+            playerBaseMaxHealth = Mathf.Max(1, state.playerBaseHealth);
+            enemyBaseMaxHealth = Mathf.Max(1, state.enemyBaseHealth);
         }
 
         private void Start()
         {
-            SpawnEnemyWave();
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
             RefreshUi();
             SetEvolutionUI(false, string.Empty, 0f);
+            SetPanelVisible(defeatPanel, false);
+            SetPanelVisible(unitsPanel, false);
+            SwitchScreen(ScreenMode.Hub);
         }
 
         private void Update()
         {
+            if (!Application.isPlaying)
+            {
+                return;
+            }
+
+            if (screenMode != ScreenMode.Battle)
+            {
+                RefreshUi();
+                return;
+            }
+
+            if (battleEnded)
+            {
+                RefreshUi();
+                return;
+            }
+
             RegenerateSpark(Time.deltaTime);
             TickUnits(Time.deltaTime);
             HandleEnemyWaves(Time.deltaTime);
             HandleInput();
+            CheckBattleState();
             RefreshUi();
         }
 
@@ -72,7 +215,7 @@ namespace WarOfTheTotems.Gameplay
         {
 #if ENABLE_INPUT_SYSTEM
             var keyboard = UnityEngine.InputSystem.Keyboard.current;
-            if (keyboard != null)
+            if (keyboard != null && screenMode == ScreenMode.Battle)
             {
                 if (keyboard.digit1Key.wasPressedThisFrame) SpawnPlayerUnit(TotemType.None);
                 if (keyboard.digit2Key.wasPressedThisFrame) SpawnPlayerUnit(TotemType.Stone);
@@ -144,6 +287,8 @@ namespace WarOfTheTotems.Gameplay
             if (deadUnit.Team == TeamSide.Enemy)
             {
                 state.ancestralBone += 1;
+                state.upgradeCoins += 1;
+                SaveMetaProgress();
             }
 
             units.Remove(deadUnit);
@@ -164,19 +309,6 @@ namespace WarOfTheTotems.Gameplay
 
             state.evolvingLabel = label;
             state.evolutionProgress = progress;
-        }
-
-        private void RegenerateSpark(float deltaTime)
-        {
-            sparkAccumulator += state.primalSparkRegenPerSecond * deltaTime;
-            if (sparkAccumulator < 1f)
-            {
-                return;
-            }
-
-            var gained = Mathf.FloorToInt(sparkAccumulator);
-            sparkAccumulator -= gained;
-            state.primalSpark += gained;
         }
 
         private void HandleEnemyWaves(float deltaTime)
@@ -216,24 +348,15 @@ namespace WarOfTheTotems.Gameplay
 
         private void SpawnPlayerUnit(TotemType totem)
         {
-            var cost = GetCost(totem);
-            if (state.primalSpark < cost)
+            if (!CanAfford(totem))
             {
                 return;
             }
 
-            state.primalSpark -= cost;
+            var option = GetSummonOption(totem);
+            state.primalSpark -= option.sparkCost;
+            state.ancestralBone -= option.boneCost;
             SpawnUnit(TeamSide.Player, totem, false, new Vector3(PlayerSpawnX, LaneY, 0f));
-        }
-
-        private int GetCost(TotemType totem)
-        {
-            return totem switch
-            {
-                TotemType.Stone => state.summonOptions[1].cost,
-                TotemType.Beast => state.summonOptions[2].cost,
-                _ => state.summonOptions[0].cost,
-            };
         }
 
         private void SpawnUnit(TeamSide team, TotemType totem, bool evolved, Vector3 position)
@@ -287,37 +410,161 @@ namespace WarOfTheTotems.Gameplay
         }
 
         private void EnsureUiScaffold()
-        {
-            var uiRoot = EnsureChild("UI");
-            mainCanvas = FindFirstObjectByType<Canvas>();
-            if (mainCanvas == null)
-            {
-                var canvasGo = new GameObject("Canvas");
-                canvasGo.transform.SetParent(uiRoot, false);
-                mainCanvas = canvasGo.AddComponent<Canvas>();
-                mainCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-                canvasGo.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-                canvasGo.AddComponent<GraphicRaycaster>();
-            }
+{
+    var uiRoot = EnsureChild("UI");
+    mainCanvas = EnsureCanvas(uiRoot);
 
-            var topBar = EnsurePanel("TopBar", mainCanvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(1680f, 88f), new Color(0.11f, 0.14f, 0.11f, 0.82f));
-            EnsureText("PlayerHealth", topBar, "5 (YOU)", TextAnchor.MiddleLeft, 24, new Vector2(-735f, 0f), new Vector2(190f, 44f));
-            EnsureText("BoneResource", topBar, "COLLECTING ANCESTRAL BONE: 0", TextAnchor.MiddleLeft, 22, new Vector2(-330f, 0f), new Vector2(500f, 40f));
-            EnsureText("SparkResource", topBar, "PRIMAL SPARK: 10", TextAnchor.MiddleLeft, 22, new Vector2(150f, 0f), new Vector2(260f, 40f));
-            EnsureText("Settings", topBar, "SETTINGS", TextAnchor.MiddleCenter, 18, new Vector2(620f, 0f), new Vector2(120f, 34f));
-            EnsureText("EnemyHealth", topBar, "500 (THEM)", TextAnchor.MiddleRight, 24, new Vector2(735f, 0f), new Vector2(210f, 44f));
+    // 1. БОЕВОЙ UI (Верх и Низ)
+    var topBar = EnsurePanel("TopBar", mainCanvas.transform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -44f), new Vector2(1800f, 88f), new Color(0.11f, 0.14f, 0.11f, 0.82f));
+    topBarPanel = topBar;
+    EnsureText("PlayerHealth", topBar, "5 (YOU)", TextAnchor.MiddleLeft, 24, new Vector2(-800f, 0f), new Vector2(190f, 44f));
+    EnsureText("BoneResource", topBar, "BONE: 0", TextAnchor.MiddleLeft, 22, new Vector2(-400f, 0f), new Vector2(220f, 40f));
+    EnsureText("SparkResource", topBar, "SPARK: 2/2", TextAnchor.MiddleLeft, 22, new Vector2(-100f, 0f), new Vector2(220f, 40f));
+    EnsureText("ControlsHint", topBar, "FIRST LEVEL: SUMMON BASE BEARER", TextAnchor.MiddleCenter, 18, new Vector2(300f, 0f), new Vector2(420f, 34f));
+    EnsureText("EnemyHealth", topBar, "500 (THEM)", TextAnchor.MiddleRight, 24, new Vector2(800f, 0f), new Vector2(210f, 44f));
 
-            var bottomBar = EnsurePanel("BottomBar", mainCanvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 30f), new Vector2(1680f, 164f), new Color(0.12f, 0.09f, 0.08f, 0.88f));
-            EnsureText("SparkFooter", bottomBar, "PRIMAL SPARK: 10", TextAnchor.MiddleLeft, 24, new Vector2(-690f, 44f), new Vector2(300f, 40f));
-            EnsureSummonCard(bottomBar, "Base Bearer (1)", "cost 2", new Vector2(-220f, 8f), new Color(0.57f, 0.43f, 0.29f));
-            EnsureSummonCard(bottomBar, "Stone Totem (2)", "cost 6", new Vector2(0f, 8f), new Color(0.43f, 0.49f, 0.52f));
-            EnsureSummonCard(bottomBar, "Beast Totem (3)", "cost 10", new Vector2(220f, 8f), new Color(0.63f, 0.37f, 0.24f));
-            EnsureText("GameTitle", bottomBar, "WAR OF THE TOTEMS", TextAnchor.MiddleCenter, 28, new Vector2(0f, -48f), new Vector2(520f, 42f));
+    var bottomBar = EnsurePanel("BottomBar", mainCanvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 82f), new Vector2(1800f, 164f), new Color(0.12f, 0.09f, 0.08f, 0.88f));
+    EnsureText("SparkFooter", bottomBar, "ONLY BASE BEARER IS UNLOCKED", TextAnchor.MiddleLeft, 24, new Vector2(-610f, 44f), new Vector2(480f, 40f));
+    EnsureSummonCard(bottomBar, "Base Bearer (1)", "2 SP", new Vector2(-220f, 8f), new Color(0.57f, 0.43f, 0.29f));
+    EnsureSummonCard(bottomBar, "Stone Totem (2)", "LOCKED", new Vector2(0f, 8f), new Color(0.43f, 0.49f, 0.52f));
+    EnsureSummonCard(bottomBar, "Beast Totem (3)", "LOCKED", new Vector2(220f, 8f), new Color(0.63f, 0.37f, 0.24f));
+    EnsureText("GameTitle", bottomBar, "WAR OF THE TOTEMS", TextAnchor.MiddleCenter, 28, new Vector2(0f, -48f), new Vector2(520f, 42f));
+    battleHudPanel = bottomBar.GetComponent<RectTransform>();
 
-            var overlay = EnsurePanel("EvolutionOverlay", mainCanvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -15f), new Vector2(300f, 70f), new Color(0.05f, 0.13f, 0.11f, 0.75f));
-            EnsureText("EvolutionLabel", overlay, "EVOLVING: STONE GUARD", TextAnchor.UpperCenter, 20, new Vector2(0f, 15f), new Vector2(280f, 28f));
-            EnsureProgressBar(overlay, new Vector2(0f, -15f), new Vector2(220f, 16f), 0.58f);
-        }
+    var overlay = EnsurePanel("EvolutionOverlay", mainCanvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 100f), new Vector2(300f, 70f), new Color(0.05f, 0.13f, 0.11f, 0.75f));
+    EnsureText("EvolutionLabel", overlay, "EVOLVING: STONE GUARD", TextAnchor.UpperCenter, 20, new Vector2(0f, 15f), new Vector2(280f, 28f));
+    EnsureProgressBar(overlay, new Vector2(0f, -15f), new Vector2(220f, 16f), 0.58f);
+
+    // 2. ЭКРАН ПОРАЖЕНИЯ
+    var defeat = EnsurePanel("DefeatOverlay", mainCanvas.transform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(600f, 250f), new Color(0.08f, 0.06f, 0.06f, 0.94f));
+    EnsureText("DefeatTitle", defeat, "ПОРАЖЕНИЕ", TextAnchor.MiddleCenter, 34, new Vector2(0f, 70f), new Vector2(280f, 42f));
+    EnsureText("DefeatMessage", defeat, "НУЖНО УЛУЧШИТЬ ЗДОРОВЬЕ БОЙЦА.", TextAnchor.MiddleCenter, 22, new Vector2(0f, 15f), new Vector2(550f, 64f));
+    EnsureButton("DefeatUnitsButton", defeat, "К УЛУЧШЕНИЯМ", new Vector2(0f, -60f), new Vector2(240f, 52f), new Color(0.37f, 0.49f, 0.31f));
+
+    // 3. ХАБ (ГЛАВНЫЙ ЭКРАН) — тёмный backdrop + красивая центрированная карточка
+    // Backdrop на весь экран
+    var hubBackdrop = EnsurePanel("HubOverlay", mainCanvas.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.04f, 0.06f, 0.10f, 0.92f));
+    hubBackdrop.anchorMin = Vector2.zero;
+    hubBackdrop.anchorMax = Vector2.one;
+    hubBackdrop.sizeDelta = Vector2.zero;
+    hubBackdrop.anchoredPosition = Vector2.zero;
+    hubPanel = hubBackdrop;
+
+    // Карточка — по центру экрана, не перекрывает нижний нав (смещена вверх)
+    var hubCard = EnsurePanel("HubCard", hubBackdrop, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 60f), new Vector2(680f, 560f), new Color(0.09f, 0.12f, 0.18f, 1f));
+
+    // Цветовая полоса-акцент сверху карточки
+    var hubAccent = EnsurePanel("HubAccent", hubCard, new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, new Vector2(0f, 6f), new Color(0.22f, 0.72f, 0.95f, 1f));
+    hubAccent.anchorMin = new Vector2(0f, 1f);
+    hubAccent.anchorMax = new Vector2(1f, 1f);
+    hubAccent.pivot = new Vector2(0.5f, 1f);
+    hubAccent.sizeDelta = new Vector2(0f, 6f);
+    hubAccent.anchoredPosition = Vector2.zero;
+
+    // Заголовок
+    EnsureText("HubModeTitle", hubCard, "ТРЕНИРОВКА", TextAnchor.MiddleCenter, 46, new Vector2(0f, 200f), new Vector2(600f, 60f));
+    // Подзаголовок
+    EnsureText("HubMessage", hubCard, "Сразись с врагом и заработай монеты на улучшения", TextAnchor.MiddleCenter, 22, new Vector2(0f, 140f), new Vector2(600f, 36f));
+
+    // Разделитель
+    var hubDivider = EnsurePanel("HubDivider", hubCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 95f), new Vector2(520f, 2f), new Color(0.22f, 0.72f, 0.95f, 0.25f));
+
+    // Блок «Поле боя» — две базы с линией между ними
+    var hubBasePlayer = EnsurePanel("HubBasePlayer", hubCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200f, 30f), new Vector2(160f, 80f), new Color(0.12f, 0.40f, 0.22f, 1f));
+    EnsureText("HubBasePlayerLabel", hubBasePlayer, "ТВОЯ\nБАЗА", TextAnchor.MiddleCenter, 20, Vector2.zero, new Vector2(150f, 70f));
+
+    var hubBaseLine = EnsurePanel("HubBaseLine", hubCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 30f), new Vector2(100f, 4f), new Color(0.22f, 0.72f, 0.95f, 0.5f));
+    EnsureText("HubRoad", hubCard, "⟵────────────────⟶", TextAnchor.MiddleCenter, 18, new Vector2(0f, 8f), new Vector2(120f, 24f));
+
+    var hubBaseEnemy = EnsurePanel("HubBaseEnemy", hubCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(200f, 30f), new Vector2(160f, 80f), new Color(0.40f, 0.12f, 0.14f, 1f));
+    EnsureText("HubBaseEnemyLabel", hubBaseEnemy, "БАЗА\nВРАГА", TextAnchor.MiddleCenter, 20, Vector2.zero, new Vector2(150f, 70f));
+
+    // Большая кнопка «В БОЙ»
+    EnsureButton("HubBattleButton", hubCard, "В  БОЙ", new Vector2(0f, -160f), new Vector2(400f, 90f), new Color(0.85f, 0.42f, 0.10f, 1f));
+    // Увеличиваем шрифт лейбла кнопки
+    var hubBtnLabel = hubCard.Find("HubBattleButton")?.Find("HubBattleButtonLabel")?.GetComponent<Text>();
+    if (hubBtnLabel != null) hubBtnLabel.fontSize = 34;
+
+    // 4. МЕНЮ ПРОКАЧКИ (ЮНИТЫ) — всё строим сразу в правильных родителях
+    // Backdrop на весь экран
+    var unitsBackdrop = EnsurePanel("UnitsOverlay", mainCanvas.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.05f, 0.07f, 0.10f, 0.92f));
+    unitsBackdrop.anchorMin = Vector2.zero;
+    unitsBackdrop.anchorMax = Vector2.one;
+    unitsBackdrop.sizeDelta = Vector2.zero;
+    unitsBackdrop.anchoredPosition = Vector2.zero;
+    unitsPanel = unitsBackdrop;
+
+    // Карточка — центрирована, смещена вверх чтобы не перекрывать навигацию
+    var unitsCard = EnsurePanel("UnitsCard", unitsBackdrop, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 35f), new Vector2(920f, 600f), new Color(0.90f, 0.86f, 0.74f, 0.98f));
+
+    // Цветная полоса-акцент сверху карточки
+    var unitsAccent = EnsurePanel("UnitsAccent", unitsCard, new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, new Vector2(0f, 6f), new Color(0.82f, 0.48f, 0.14f, 1f));
+    unitsAccent.anchorMin = new Vector2(0f, 1f);
+    unitsAccent.anchorMax = new Vector2(1f, 1f);
+    unitsAccent.pivot = new Vector2(0.5f, 1f);
+    unitsAccent.sizeDelta = new Vector2(0f, 6f);
+    unitsAccent.anchoredPosition = Vector2.zero;
+
+    // Заголовок и баланс монет
+    modeTitleText = EnsureText("UnitsTitle", unitsCard, "Улучшения Базы", TextAnchor.MiddleCenter, 38, new Vector2(-60f, 240f), new Vector2(420f, 54f));
+    unitsBalanceText = EnsureText("UnitsBalance", unitsCard, "COINS: 0", TextAnchor.MiddleRight, 26, new Vector2(345f, 240f), new Vector2(180f, 40f));
+    EnsureText("UnitsSubtitle", unitsCard, "Укрепи основного бойца перед следующей тренировкой", TextAnchor.MiddleCenter, 20, new Vector2(0f, 188f), new Vector2(700f, 32f));
+
+    // Карточки юнитов
+    var selectedCard = EnsurePanel("UnitsSelectedCard", unitsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-250f, 80f), new Vector2(210f, 150f), new Color(0.23f, 0.29f, 0.21f, 0.96f));
+    EnsureText("UnitsSelectedName", selectedCard, "Пещерный\nЧеловек", TextAnchor.MiddleCenter, 26, new Vector2(0f, 16f), new Vector2(185f, 72f));
+    EnsureText("UnitsSelectedStatus", selectedCard, "АКТИВЕН", TextAnchor.MiddleCenter, 17, new Vector2(0f, -48f), new Vector2(140f, 24f));
+
+    var lockedCard1 = EnsurePanel("UnitsLockedCard1", unitsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 80f), new Vector2(210f, 150f), new Color(0.40f, 0.39f, 0.35f, 0.92f));
+    EnsureText("UnitsLocked1", lockedCard1, "Тотем Камня\n(Закрыто)", TextAnchor.MiddleCenter, 20, Vector2.zero, new Vector2(185f, 64f));
+
+    var lockedCard2 = EnsurePanel("UnitsLockedCard2", unitsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(250f, 80f), new Vector2(210f, 150f), new Color(0.38f, 0.31f, 0.28f, 0.92f));
+    EnsureText("UnitsLocked2", lockedCard2, "Тотем Зверя\n(Закрыто)", TextAnchor.MiddleCenter, 20, Vector2.zero, new Vector2(185f, 64f));
+
+    // Карточка характеристик
+    var statsCard = EnsurePanel("UnitsStatsCard", unitsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -115f), new Vector2(520f, 210f), new Color(0.96f, 0.92f, 0.82f, 1f));
+    EnsureText("UnitsStatsTitle", statsCard, "Характеристики", TextAnchor.MiddleCenter, 24, new Vector2(0f, 72f), new Vector2(220f, 32f));
+    EnsureText("UnitsUpgradeLabel", statsCard, "Здоровье Бойца:", TextAnchor.MiddleRight, 26, new Vector2(-60f, 16f), new Vector2(240f, 36f));
+    unitsHealthValueText = EnsureText("UnitsHealthValue", statsCard, "10", TextAnchor.MiddleLeft, 26, new Vector2(130f, 16f), new Vector2(120f, 36f));
+    EnsureText("UnitsUpgradeCostLabel", statsCard, "Стоимость апгрейда:", TextAnchor.MiddleRight, 22, new Vector2(-60f, -28f), new Vector2(240f, 32f));
+    unitsUpgradeCostText = EnsureText("UnitsUpgradeCost", statsCard, "5", TextAnchor.MiddleLeft, 22, new Vector2(130f, -28f), new Vector2(120f, 32f));
+
+    // Кнопка улучшения
+    EnsureButton("UnitsUpgradeButton", unitsCard, "УЛУЧШИТЬ", new Vector2(0f, -250f), new Vector2(320f, 76f), new Color(0.72f, 0.40f, 0.12f, 1f));
+    var upgBtnLabel = unitsCard.Find("UnitsUpgradeButton")?.Find("UnitsUpgradeButtonLabel")?.GetComponent<Text>();
+    if (upgBtnLabel != null) { upgBtnLabel.fontSize = 24; upgBtnLabel.color = new Color(0.98f, 0.95f, 0.88f); }
+
+    // Цвета текста для экрана Юнитов
+    SetTextColor("UnitsTitle", new Color(0.20f, 0.16f, 0.12f));
+    SetTextColor("UnitsBalance", new Color(0.82f, 0.48f, 0.14f));
+    SetTextColor("UnitsSubtitle", new Color(0.39f, 0.34f, 0.28f));
+    SetTextColor("UnitsSelectedName", new Color(0.96f, 0.94f, 0.86f));
+    SetTextColor("UnitsSelectedStatus", new Color(0.62f, 0.90f, 0.52f));
+    SetTextColor("UnitsLocked1", new Color(0.84f, 0.82f, 0.78f));
+    SetTextColor("UnitsLocked2", new Color(0.84f, 0.82f, 0.78f));
+    SetTextColor("UnitsStatsTitle", new Color(0.26f, 0.20f, 0.14f));
+    SetTextColor("UnitsUpgradeLabel", new Color(0.20f, 0.18f, 0.16f));
+    SetTextColor("UnitsUpgradeCostLabel", new Color(0.32f, 0.29f, 0.24f));
+    SetTextColor("UnitsHealthValue", new Color(0.16f, 0.58f, 0.26f));
+    SetTextColor("UnitsUpgradeCost", new Color(0.82f, 0.48f, 0.14f));
+
+    // Hub цвета текста
+    SetTextColor("HubModeTitle", new Color(0.95f, 0.97f, 1.0f));
+    SetTextColor("HubMessage", new Color(0.65f, 0.78f, 0.90f));
+    SetTextColor("HubRoad", new Color(0.40f, 0.68f, 0.90f));
+    SetTextColor("HubBasePlayerLabel", new Color(0.55f, 0.95f, 0.70f));
+    SetTextColor("HubBaseEnemyLabel", new Color(0.95f, 0.60f, 0.60f));
+
+    // 5. НИЖНЯЯ НАВИГАЦИЯ (Всегда поверх остальных окон)
+    var nav = EnsurePanel("BottomNav", mainCanvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 60f), new Vector2(700f, 100f), new Color(0.16f, 0.16f, 0.19f, 0.98f));
+    bottomNavPanel = nav.GetComponent<RectTransform>();
+    EnsureButton("NavHomeButton", nav, "ДОМ", new Vector2(-220f, 0f), new Vector2(200f, 80f), new Color(0.35f, 0.38f, 0.45f));
+    EnsureButton("NavUnitsButton", nav, "ЮНИТЫ", new Vector2(0f, 0f), new Vector2(200f, 80f), new Color(0.35f, 0.38f, 0.45f));
+    EnsureButton("NavBattleButton", nav, "БИТВА", new Vector2(220f, 0f), new Vector2(200f, 80f), new Color(0.35f, 0.38f, 0.45f));
+
+    // Навигация рисуется поверх всех окон
+    bottomNavPanel.SetAsLastSibling();
+}
 
         private void WireUi()
         {
@@ -327,53 +574,77 @@ namespace WarOfTheTotems.Gameplay
             sparkTopText = FindText("SparkResource");
             sparkBottomText = FindText("SparkFooter");
             evolutionLabelText = FindText("EvolutionLabel");
+            controlsHintText = FindText("ControlsHint");
+            defeatMessageText = FindText("DefeatMessage");
+            defeatTitleText = FindText("DefeatTitle");
+            unitsBalanceText = FindText("UnitsBalance");
+            unitsUpgradeCostText = FindText("UnitsUpgradeCost");
+            unitsHealthValueText = FindText("UnitsHealthValue");
 
             var evolutionOverlay = FindRect("EvolutionOverlay");
             evolutionPanel = evolutionOverlay;
             evolutionFill = FindRect("ProgressFill");
+            defeatPanel = FindRect("DefeatOverlay");
+            unitsPanel = FindRect("UnitsOverlay");
+            hubPanel = FindRect("HubOverlay");
+            topBarPanel = FindRect("TopBar");
+            battleHudPanel = FindRect("BottomBar");
+            bottomNavPanel = FindRect("BottomNav");
 
-            BindButton(new[] { "Base Bearer (1)", "Base Bearer" }, () => SpawnPlayerUnit(TotemType.None));
-            BindButton(new[] { "Stone Totem (2)", "Stone Totem Summon" }, () => SpawnPlayerUnit(TotemType.Stone));
-            BindButton(new[] { "Beast Totem (3)", "Beast Totem Summon" }, () => SpawnPlayerUnit(TotemType.Beast));
+            baseSummonButton = BindButton(new[] { "Base Bearer (1)", "Base Bearer" }, () => SpawnPlayerUnit(TotemType.None));
+            stoneSummonButton = BindButton(new[] { "Stone Totem (2)", "Stone Totem Summon" }, () => SpawnPlayerUnit(TotemType.Stone));
+            beastSummonButton = BindButton(new[] { "Beast Totem (3)", "Beast Totem Summon" }, () => SpawnPlayerUnit(TotemType.Beast));
+            defeatUnitsButton = BindButton(new[] { "DefeatUnitsButton" }, OpenUnitsAfterDefeat);
+            unitsUpgradeButton = BindButton(new[] { "UnitsUpgradeButton" }, UpgradeBaseBearerHealth);
+            unitsBattleButton = BindButton(new[] { "UnitsBattleButton" }, StartBattleFromMenu);
+            hubBattleButton = BindButton(new[] { "HubBattleButton" }, StartBattleFromMenu);
+            navHomeButton = BindButton(new[] { "NavHomeButton" }, () => SwitchScreen(ScreenMode.Hub));
+            navUnitsButton = BindButton(new[] { "NavUnitsButton" }, () => SwitchScreen(ScreenMode.Units));
+            navBattleButton = BindButton(new[] { "NavBattleButton" }, StartBattleFromMenu);
+
+            SetPanelVisible(defeatPanel, false);
+            SetPanelVisible(unitsPanel, false);
         }
 
-        private void BindButton(string[] objectNames, UnityEngine.Events.UnityAction action)
+        private Button BindButton(string[] objectNames, UnityEngine.Events.UnityAction action)
         {
-            GameObject target = null;
-            for (var i = 0; i < objectNames.Length; i++)
+            if (mainCanvas == null) return null;
+
+            Button target = null;
+            var allButtons = mainCanvas.GetComponentsInChildren<Button>(true);
+            foreach (var btn in allButtons)
             {
-                target = GameObject.Find(objectNames[i]);
-                if (target != null)
+                for (var i = 0; i < objectNames.Length; i++)
                 {
-                    break;
+                    if (btn.gameObject.name == objectNames[i])
+                    {
+                        target = btn;
+                        break;
+                    }
                 }
+                if (target != null) break;
             }
 
             if (target == null)
             {
-                return;
-            }
-
-            var button = target.GetComponent<Button>();
-            if (button == null)
-            {
-                button = target.AddComponent<Button>();
+                return null;
             }
 
             var image = target.GetComponent<Image>();
             if (image != null)
             {
-                var colors = button.colors;
+                var colors = target.colors;
                 colors.normalColor = image.color;
                 colors.highlightedColor = image.color * 1.08f;
                 colors.pressedColor = image.color * 0.88f;
                 colors.selectedColor = image.color;
-                button.colors = colors;
-                button.targetGraphic = image;
+                target.colors = colors;
+                target.targetGraphic = image;
             }
 
-            button.onClick.RemoveAllListeners();
-            button.onClick.AddListener(action);
+            target.onClick.RemoveAllListeners();
+            target.onClick.AddListener(action);
+            return target;
         }
 
         private void RefreshUi()
@@ -390,24 +661,83 @@ namespace WarOfTheTotems.Gameplay
 
             if (boneText != null)
             {
-                boneText.text = $"COLLECTING ANCESTRAL BONE: {state.ancestralBone}";
+                boneText.text = $"BONE: {state.ancestralBone}";
             }
 
             if (sparkTopText != null)
             {
-                sparkTopText.text = $"PRIMAL SPARK: {state.primalSpark}";
+                sparkTopText.text = $"SPARK: {state.primalSpark}/{state.primalSparkMax}";
             }
 
             if (sparkBottomText != null)
             {
-                sparkBottomText.text = $"PRIMAL SPARK: {state.primalSpark}";
+                sparkBottomText.text = screenMode == ScreenMode.Battle
+                    ? $"PRIMAL SPARK: {state.primalSpark}/{state.primalSparkMax}"
+                    : string.Empty;
             }
+
+            if (controlsHintText != null)
+            {
+                controlsHintText.text = screenMode == ScreenMode.Battle
+                    ? "Призови одного бойца. После поражения открой улучшения."
+                    : "Открой Юниты и улучши здоровье после тренировки.";
+            }
+
+            if (defeatTitleText != null)
+            {
+                defeatTitleText.text = playerWon ? "ПОБЕДА!" : "ПОРАЖЕНИЕ";
+            }
+
+            if (defeatMessageText != null)
+            {
+                if (playerWon)
+                {
+                    defeatMessageText.text = "БАЗА ВРАГА УНИЧТОЖЕНА! МОНЕТЫ ПОЛУЧЕНЫ.";
+                }
+                else
+                {
+                    defeatMessageText.text = unitsOpenedOnce
+                        ? "ПОТРАТЬ МОНЕТЫ НА ЗДОРОВЬЕ И ПОПРОБУЙ СНОВА."
+                        : "ВРАГ ПОБЕДИЛ. ОТКРОЙ ЮНИТЫ И УЛУЧШИ ЗДОРОВЬЕ.";
+                }
+            }
+
+            if (unitsBalanceText != null)
+            {
+                unitsBalanceText.text = $"COINS: {state.upgradeCoins}";
+            }
+
+            if (unitsUpgradeCostText != null)
+            {
+                unitsUpgradeCostText.text = $"{state.baseBearerHealthUpgradeCost}";
+            }
+
+            if (unitsHealthValueText != null)
+            {
+                unitsHealthValueText.text = $"{10 + state.baseBearerBonusHealth}";
+            }
+
+            RefreshBaseHealthOverlay(playerBaseWorldFill, playerBaseWorldText, state.playerBaseHealth, playerBaseMaxHealth);
+            RefreshBaseHealthOverlay(enemyBaseWorldFill, enemyBaseWorldText, state.enemyBaseHealth, enemyBaseMaxHealth);
+            RefreshSummonUi();
         }
 
         private void EnsureEventSystem()
         {
-            if (FindFirstObjectByType<EventSystem>() != null)
+            var eventSystems = FindObjectsByType<EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            if (eventSystems.Length > 0)
             {
+                var primaryEventSystem = eventSystems[0];
+                for (var i = 1; i < eventSystems.Length; i++)
+                {
+                    DestroyObject(eventSystems[i].gameObject);
+                }
+
+                if (primaryEventSystem.GetComponent<InputSystemUIInputModule>() == null)
+                {
+                    primaryEventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+                }
+
                 return;
             }
 
@@ -420,13 +750,37 @@ namespace WarOfTheTotems.Gameplay
         {
             for (var i = gameplayRoot.childCount - 1; i >= 0; i--)
             {
-                Destroy(gameplayRoot.GetChild(i).gameObject);
+                if (Application.isPlaying)
+                {
+                    Destroy(gameplayRoot.GetChild(i).gameObject);
+                }
+                else
+                {
+                    DestroyImmediate(gameplayRoot.GetChild(i).gameObject);
+                }
             }
         }
 
         private Transform EnsureChild(string childName)
         {
-            var child = transform.Find(childName);
+            Transform child = null;
+            for (var i = transform.childCount - 1; i >= 0; i--)
+            {
+                var candidate = transform.GetChild(i);
+                if (candidate.name != childName)
+                {
+                    continue;
+                }
+
+                if (child == null)
+                {
+                    child = candidate;
+                    continue;
+                }
+
+                DestroyObject(candidate.gameObject);
+            }
+
             if (child != null)
             {
                 return child;
@@ -437,14 +791,226 @@ namespace WarOfTheTotems.Gameplay
             return go.transform;
         }
 
+        private void CleanupSceneDuplicates()
+        {
+            EnsureChild("UI");
+            EnsureChild("Gameplay");
+
+            var canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Canvas primaryCanvas = null;
+            for (var i = 0; i < canvases.Length; i++)
+            {
+                if (canvases[i].transform.IsChildOf(transform))
+                {
+                    primaryCanvas = canvases[i];
+                    break;
+                }
+            }
+
+            if (primaryCanvas == null && canvases.Length > 0)
+            {
+                primaryCanvas = canvases[0];
+            }
+
+            for (var i = 0; i < canvases.Length; i++)
+            {
+                if (canvases[i] != primaryCanvas)
+                {
+                    DestroyObject(canvases[i].gameObject);
+                }
+            }
+
+            var eventSystems = FindObjectsByType<EventSystem>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (var i = 1; i < eventSystems.Length; i++)
+            {
+                DestroyObject(eventSystems[i].gameObject);
+            }
+        }
+
+        private Canvas EnsureCanvas(Transform uiRoot)
+        {
+            var canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Canvas canvas = null;
+            for (var i = 0; i < canvases.Length; i++)
+            {
+                if (canvases[i].transform.IsChildOf(uiRoot))
+                {
+                    canvas = canvases[i];
+                    break;
+                }
+            }
+
+            if (canvas == null && canvases.Length > 0)
+            {
+                canvas = canvases[0];
+            }
+
+            if (canvas == null)
+            {
+                var canvasGo = new GameObject("Canvas");
+                canvasGo.transform.SetParent(uiRoot, false);
+                canvas = canvasGo.AddComponent<Canvas>();
+            }
+            else if (canvas.transform.parent != uiRoot)
+            {
+                canvas.transform.SetParent(uiRoot, false);
+            }
+
+            canvas.name = "Canvas";
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+
+            var scaler = canvas.GetComponent<CanvasScaler>();
+            if (scaler == null)
+            {
+                scaler = canvas.gameObject.AddComponent<CanvasScaler>();
+            }
+
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+
+            if (canvas.GetComponent<GraphicRaycaster>() == null)
+            {
+                canvas.gameObject.AddComponent<GraphicRaycaster>();
+            }
+
+            for (var i = 0; i < canvases.Length; i++)
+            {
+                if (canvases[i] != canvas)
+                {
+                    DestroyObject(canvases[i].gameObject);
+                }
+            }
+
+            return canvas;
+        }
+
+        private static void DestroyObject(GameObject gameObject)
+        {
+            if (gameObject == null)
+            {
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                Destroy(gameObject);
+            }
+            else
+            {
+                DestroyImmediate(gameObject);
+            }
+        }
+
         private Text FindText(string objectName)
         {
-            return GameObject.Find(objectName)?.GetComponent<Text>();
+            if (mainCanvas == null) return null;
+            var texts = mainCanvas.GetComponentsInChildren<Text>(true);
+            foreach (var t in texts)
+            {
+                if (t.gameObject.name == objectName) return t;
+            }
+            return null;
         }
 
         private RectTransform FindRect(string objectName)
         {
-            return GameObject.Find(objectName)?.GetComponent<RectTransform>();
+            if (mainCanvas == null) return null;
+            var rects = mainCanvas.GetComponentsInChildren<RectTransform>(true);
+            foreach (var r in rects)
+            {
+                if (r.gameObject.name == objectName) return r;
+            }
+            return null;
+        }
+
+        private void EnsureBaseHealthOverlays()
+        {
+            var playerRoot = EnsureBaseOverlay(gameplayRoot, "PlayerBaseWorldHp", new Vector3(-6.7f, 2.15f, -0.3f), new Color(0.52f, 0.88f, 0.70f), out var playerFill, out var playerText);
+            var enemyRoot = EnsureBaseOverlay(gameplayRoot, "EnemyBaseWorldHp", new Vector3(6.7f, 2.2f, -0.3f), new Color(0.94f, 0.46f, 0.49f), out var enemyFill, out var enemyText);
+
+            playerBaseWorldFill = playerFill;
+            enemyBaseWorldFill = enemyFill;
+            playerBaseWorldText = playerText;
+            enemyBaseWorldText = enemyText;
+        }
+
+        private GameObject EnsureBaseOverlay(Transform parent, string rootName, Vector3 position, Color fillColor, out Transform fill, out TextMesh valueText)
+        {
+            var root = parent.Find(rootName)?.gameObject ?? new GameObject(rootName);
+            root.transform.SetParent(parent, true);
+            root.transform.position = position;
+
+            var title = EnsureWorldText(root.transform, "Title", "BASE HP", new Vector3(0f, 0.32f, 0f), 28, 0.05f, new Color(0.96f, 0.93f, 0.83f));
+            title.anchor = TextAnchor.MiddleCenter;
+
+            valueText = EnsureWorldText(root.transform, "Value", "0 / 0", new Vector3(0f, 0.16f, 0f), 28, 0.05f, Color.white);
+            valueText.anchor = TextAnchor.MiddleCenter;
+
+            var barRoot = root.transform.Find("BarRoot");
+            if (barRoot == null)
+            {
+                barRoot = new GameObject("BarRoot").transform;
+                barRoot.SetParent(root.transform, false);
+            }
+
+            barRoot.localPosition = Vector3.zero;
+            EnsureQuad("BarBack", barRoot, Vector3.zero, new Vector3(1.4f, 0.16f, 1f), new Color(0.14f, 0.16f, 0.14f));
+            fill = EnsureQuad("BarFill", barRoot, new Vector3(-0.35f, 0f, -0.01f), new Vector3(0.7f, 0.11f, 1f), fillColor).transform;
+            fill.localScale = new Vector3(1f, 1f, 1f);
+            return root;
+        }
+
+        private static void RefreshBaseHealthOverlay(Transform fill, TextMesh valueText, int current, int maximum)
+        {
+            if (fill == null || valueText == null)
+            {
+                return;
+            }
+
+            var ratio = maximum <= 0 ? 0f : Mathf.Clamp01((float)current / maximum);
+            fill.localScale = new Vector3(ratio, 1f, 1f);
+            fill.localPosition = new Vector3(-0.7f + (0.7f * ratio), 0f, -0.01f);
+            valueText.text = $"{current} / {maximum}";
+        }
+
+        private void RefreshSummonUi()
+        {
+            UpdateSummonCard(baseSummonButton, "Base Bearer (1)Cost", GetCostLabel(TotemType.None), CanAfford(TotemType.None));
+            UpdateSummonCard(stoneSummonButton, "Stone Totem (2)Cost", GetCostLabel(TotemType.Stone), CanAfford(TotemType.Stone));
+            UpdateSummonCard(beastSummonButton, "Beast Totem (3)Cost", GetCostLabel(TotemType.Beast), CanAfford(TotemType.Beast));
+            if (unitsUpgradeButton != null)
+            {
+                unitsUpgradeButton.interactable = state.upgradeCoins >= state.baseBearerHealthUpgradeCost;
+            }
+        }
+
+        private void UpdateSummonCard(Button button, string costTextName, string costLabel, bool canAfford)
+        {
+            var costText = FindText(costTextName);
+            if (costText != null)
+            {
+                costText.text = costLabel;
+            }
+
+            if (button == null)
+            {
+                return;
+            }
+
+            button.interactable = canAfford;
+            if (button.targetGraphic is Image image)
+            {
+                var baseColor = image.color;
+                image.color = canAfford ? new Color(baseColor.r, baseColor.g, baseColor.b, 1f) : new Color(baseColor.r * 0.55f, baseColor.g * 0.55f, baseColor.b * 0.55f, 0.8f);
+            }
+        }
+
+        private string GetCostLabel(TotemType totem)
+        {
+            var option = GetSummonOption(totem);
+            return option.boneCost > 0
+                ? $"{option.sparkCost} SP + {option.boneCost} BN"
+                : $"{option.sparkCost} SP";
         }
 
         private static GameObject CreateQuad(string name, Transform parent, Vector3 position, Vector3 scale, Color color, float rotationZ = 0f)
@@ -459,7 +1025,14 @@ namespace WarOfTheTotems.Gameplay
             var collider = quad.GetComponent<Collider>();
             if (collider != null)
             {
-                Destroy(collider);
+                if (Application.isPlaying)
+                {
+                    Destroy(collider);
+                }
+                else
+                {
+                    collider.enabled = false;
+                }
             }
 
             var renderer = quad.GetComponent<MeshRenderer>();
@@ -468,9 +1041,48 @@ namespace WarOfTheTotems.Gameplay
             return quad;
         }
 
+        private static GameObject EnsureQuad(string name, Transform parent, Vector3 position, Vector3 scale, Color color)
+        {
+            var quad = parent.Find(name)?.gameObject ?? CreateQuad(name, parent, position, scale, color);
+            quad.transform.SetParent(parent, false);
+            quad.transform.localPosition = position;
+            quad.transform.localScale = scale;
+            quad.transform.localRotation = Quaternion.identity;
+
+            if (quad.TryGetComponent<MeshRenderer>(out var renderer))
+            {
+                if (Application.isPlaying)
+                    renderer.material.color = color;
+                else
+                    renderer.sharedMaterial.color = color;
+            }
+
+            return quad;
+        }
+
+        private static TextMesh EnsureWorldText(Transform parent, string name, string content, Vector3 localPosition, int fontSize, float charSize, Color color)
+        {
+            var go = parent.Find(name)?.gameObject ?? new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = localPosition;
+
+            var text = go.GetComponent<TextMesh>();
+            if (text == null)
+            {
+                text = go.AddComponent<TextMesh>();
+            }
+
+            text.text = content;
+            text.fontSize = fontSize;
+            text.characterSize = charSize;
+            text.color = color;
+            text.alignment = TextAlignment.Center;
+            return text;
+        }
+
         private static RectTransform EnsurePanel(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax, Vector2 anchoredPosition, Vector2 size, Color color)
         {
-            var go = GameObject.Find(name) ?? new GameObject(name);
+            var go = parent.Find(name)?.gameObject ?? new GameObject(name);
             go.transform.SetParent(parent, false);
 
             var rect = go.GetComponent<RectTransform>();
@@ -497,7 +1109,7 @@ namespace WarOfTheTotems.Gameplay
 
         private static Text EnsureText(string name, Transform parent, string content, TextAnchor alignment, int fontSize, Vector2 anchoredPosition, Vector2 size)
         {
-            var go = GameObject.Find(name) ?? new GameObject(name);
+            var go = parent.Find(name)?.gameObject ?? new GameObject(name);
             go.transform.SetParent(parent, false);
 
             var rect = go.GetComponent<RectTransform>();
@@ -545,6 +1157,205 @@ namespace WarOfTheTotems.Gameplay
             fill.pivot = new Vector2(0f, 0.5f);
             fill.anchorMin = new Vector2(0f, 0.5f);
             fill.anchorMax = new Vector2(0f, 0.5f);
+        }
+
+        private void RegenerateSpark(float deltaTime)
+        {
+            if (state.primalSpark >= state.primalSparkMax)
+            {
+                state.primalSpark = state.primalSparkMax;
+                sparkAccumulator = 0f;
+                return;
+            }
+
+            sparkAccumulator += state.primalSparkRegenPerSecond * deltaTime;
+            if (sparkAccumulator < 1f)
+            {
+                return;
+            }
+
+            var gained = Mathf.FloorToInt(sparkAccumulator);
+            sparkAccumulator -= gained;
+            state.primalSpark = Mathf.Min(state.primalSparkMax, state.primalSpark + gained);
+        }
+
+        private bool CanAfford(TotemType totem)
+        {
+            var option = GetSummonOption(totem);
+            return state.primalSpark >= option.sparkCost && state.ancestralBone >= option.boneCost;
+        }
+
+        private SummonOption GetSummonOption(TotemType totem)
+        {
+            return totem switch
+            {
+                TotemType.Stone => state.summonOptions[1],
+                TotemType.Beast => state.summonOptions[2],
+                _ => state.summonOptions[0],
+            };
+        }
+
+        private void ApplyEditorPreview()
+        {
+            battleEnded = false;
+            state.playerBaseHealth = Mathf.Max(1, playerBaseMaxHealth);
+            state.enemyBaseHealth = Mathf.Max(1, enemyBaseMaxHealth);
+            state.primalSpark = state.primalSparkMax;
+            state.ancestralBone = 0;
+
+            SetEvolutionUI(true, "EVOLVING: STONE GUARD", 0.58f);
+            SetPanelVisible(defeatPanel, false);
+            SetPanelVisible(unitsPanel, false);
+
+            if (stoneSummonButton != null) stoneSummonButton.gameObject.SetActive(true);
+            if (beastSummonButton != null) beastSummonButton.gameObject.SetActive(true);
+
+            screenMode = ScreenMode.Hub;
+            ApplyScreenVisibility();
+            RefreshUi();
+        }
+
+        private void CheckBattleState()
+        {
+            if (state.enemyBaseHealth <= 0)
+            {
+                battleEnded = true;
+                playerWon = true;
+                state.upgradeCoins += 5;
+                SaveMetaProgress();
+                ShowBattleResult();
+            }
+            else if (state.playerBaseHealth <= 0)
+            {
+                battleEnded = true;
+                playerWon = false;
+                ShowBattleResult();
+            }
+        }
+
+        private void ShowBattleResult()
+        {
+            SetPanelVisible(defeatPanel, true);
+        }
+
+        private void OpenUnitsAfterDefeat()
+        {
+            unitsOpenedOnce = true;
+            SetPanelVisible(defeatPanel, false);
+            SwitchScreen(ScreenMode.Units);
+        }
+
+        private void UpgradeBaseBearerHealth()
+        {
+            if (state.upgradeCoins < state.baseBearerHealthUpgradeCost)
+            {
+                return;
+            }
+
+            state.upgradeCoins -= state.baseBearerHealthUpgradeCost;
+            state.baseBearerBonusHealth += 4;
+            state.baseBearerHealthUpgradeCost += 3;
+            SaveMetaProgress();
+            RefreshUi();
+        }
+
+        private void StartBattleFromMenu()
+        {
+            ResetBattleState();
+            SwitchScreen(ScreenMode.Battle);
+            SpawnEnemyWave();
+        }
+
+        private void LoadMetaProgress()
+        {
+            state.upgradeCoins = PlayerPrefs.GetInt("WarOfTheTotems.UpgradeCoins", state.startingUpgradeCoins);
+            state.baseBearerBonusHealth = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerBonusHealth", 0);
+            state.baseBearerHealthUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerUpgradeCost", 5);
+        }
+
+        private void SaveMetaProgress()
+        {
+            PlayerPrefs.SetInt("WarOfTheTotems.UpgradeCoins", state.upgradeCoins);
+            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerBonusHealth", state.baseBearerBonusHealth);
+            PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerUpgradeCost", state.baseBearerHealthUpgradeCost);
+            PlayerPrefs.Save();
+        }
+
+        private static Button EnsureButton(string name, Transform parent, string label, Vector2 anchoredPosition, Vector2 size, Color color)
+        {
+            var rect = EnsurePanel(name, parent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), anchoredPosition, size, color);
+            EnsureText($"{name}Label", rect, label, TextAnchor.MiddleCenter, 20, Vector2.zero, size);
+            var button = rect.GetComponent<Button>();
+            if (button == null)
+            {
+                button = rect.gameObject.AddComponent<Button>();
+            }
+
+            button.targetGraphic = rect.GetComponent<Image>();
+            return button;
+        }
+
+        private static void SetPanelVisible(RectTransform panel, bool visible)
+        {
+            if (panel != null)
+            {
+                panel.gameObject.SetActive(visible);
+            }
+        }
+
+        private void SwitchScreen(ScreenMode mode)
+        {
+            screenMode = mode;
+            ApplyScreenVisibility();
+            RefreshUi();
+        }
+
+        private void ApplyScreenVisibility()
+        {
+            SetPanelVisible(hubPanel, screenMode == ScreenMode.Hub);
+            SetPanelVisible(unitsPanel, screenMode == ScreenMode.Units);
+            SetPanelVisible(topBarPanel, screenMode == ScreenMode.Battle);
+            SetPanelVisible(battleHudPanel, screenMode == ScreenMode.Battle);
+            SetPanelVisible(bottomNavPanel, screenMode != ScreenMode.Battle);
+            SetPanelVisible(evolutionPanel, screenMode == ScreenMode.Battle && Application.isPlaying);
+            if (gameplayRoot != null && Application.isPlaying)
+            {
+                gameplayRoot.gameObject.SetActive(screenMode == ScreenMode.Battle);
+            }
+            if (screenMode == ScreenMode.Hub)
+            {
+                SetPanelVisible(defeatPanel, false);
+            }
+        }
+
+        private void ResetBattleState()
+        {
+            battleEnded = false;
+            playerWon = false;
+            unitsOpenedOnce = false;
+            sparkAccumulator = 0f;
+            enemyWaveTimer = 0f;
+            state.primalSpark = state.primalSparkMax;
+            state.ancestralBone = 0;
+            state.playerBaseHealth = playerBaseMaxHealth;
+            state.enemyBaseHealth = enemyBaseMaxHealth;
+            ClearGameplayMarkers();
+            EnsureBaseHealthOverlays();
+            SetPanelVisible(defeatPanel, false);
+        }
+
+        private void SetTextColor(string name, Color color)
+        {
+            if (mainCanvas == null) return;
+            var texts = mainCanvas.GetComponentsInChildren<Text>(true);
+            foreach (var t in texts)
+            {
+                if (t.name == name)
+                {
+                    t.color = color;
+                    break;
+                }
+            }
         }
     }
 }
