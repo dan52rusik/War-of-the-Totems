@@ -17,6 +17,7 @@ namespace WarOfTheTotems.Gameplay
         private enum ScreenMode
         {
             Hub,
+            Levels,
             Battle,
             Units,
         }
@@ -43,6 +44,9 @@ namespace WarOfTheTotems.Gameplay
         private Text evolutionLabelText = null!;
         private Text defeatMessageText = null!;
         private Text defeatTitleText = null!;
+        private Text battleMenuTitleText = null!;
+        private Text battleMenuDescriptionText = null!;
+        private Text battleLevelStatusText = null!;
         private Text modeTitleText = null!;
         private Text unitsBalanceText = null!;
         private Text unitsUpgradeCostText = null!;
@@ -52,6 +56,7 @@ namespace WarOfTheTotems.Gameplay
         private RectTransform defeatPanel = null!;
         private RectTransform unitsPanel = null!;
         private RectTransform hubPanel = null!;
+        private RectTransform levelSelectPanel = null!;
         private RectTransform topBarPanel = null!;
         private RectTransform battleHudPanel = null!;
         private RectTransform bottomNavPanel = null!;
@@ -66,6 +71,7 @@ namespace WarOfTheTotems.Gameplay
         private Button unitsUpgradeButton = null!;
         private Button unitsBattleButton = null!;
         private Button hubBattleButton = null!;
+        private Button levelStartButton = null!;
         private Button navHomeButton = null!;
         private Button navUnitsButton = null!;
         private Button navBattleButton = null!;
@@ -77,10 +83,44 @@ namespace WarOfTheTotems.Gameplay
         private bool battleEnded;
         private bool playerWon;
         private bool unitsOpenedOnce;
+        private int selectedLevelIndex;
         private ScreenMode screenMode;
+        private BattleLevelDefinition activeLevel;
 
         public float EvolutionDuration => state.evolutionDuration;
         public int BaseBearerBonusHealth => state.baseBearerBonusHealth;
+        public bool StoneTotemUnlocked => activeLevel.allowStoneTotem;
+        public bool BeastTotemUnlocked => activeLevel.allowBeastTotem;
+
+        public int GetConfiguredUnitHealth(TeamSide team, TotemType totem, int defaultValue)
+        {
+            if (team == TeamSide.Player && totem == TotemType.None && activeLevel.playerBaseBearerHealth > 0)
+            {
+                return activeLevel.playerBaseBearerHealth;
+            }
+
+            if (team == TeamSide.Enemy && totem == TotemType.Shadow && activeLevel.enemyShadowHealth > 0)
+            {
+                return activeLevel.enemyShadowHealth;
+            }
+
+            return defaultValue;
+        }
+
+        public int GetConfiguredUnitDamage(TeamSide team, TotemType totem, int defaultValue)
+        {
+            if (team == TeamSide.Player && totem == TotemType.None && activeLevel.playerBaseBearerDamage > 0)
+            {
+                return activeLevel.playerBaseBearerDamage;
+            }
+
+            if (team == TeamSide.Enemy && totem == TotemType.Shadow && activeLevel.enemyShadowDamage > 0)
+            {
+                return activeLevel.enemyShadowDamage;
+            }
+
+            return defaultValue;
+        }
 
         private void Awake()
         {
@@ -166,6 +206,8 @@ namespace WarOfTheTotems.Gameplay
             }
 
             LoadMetaProgress();
+            selectedLevelIndex = Mathf.Clamp(selectedLevelIndex, 0, Mathf.Max(0, state.levels.Length - 1));
+            activeLevel = GetSelectedLevel();
             playerBaseMaxHealth = Mathf.Max(1, state.playerBaseHealth);
             enemyBaseMaxHealth = Mathf.Max(1, state.enemyBaseHealth);
         }
@@ -420,8 +462,10 @@ namespace WarOfTheTotems.Gameplay
     EnsureText("PlayerHealth", topBar, "5 (YOU)", TextAnchor.MiddleLeft, 24, new Vector2(-800f, 0f), new Vector2(190f, 44f));
     EnsureText("BoneResource", topBar, "BONE: 0", TextAnchor.MiddleLeft, 22, new Vector2(-400f, 0f), new Vector2(220f, 40f));
     EnsureText("SparkResource", topBar, "SPARK: 2/2", TextAnchor.MiddleLeft, 22, new Vector2(-100f, 0f), new Vector2(220f, 40f));
-    EnsureText("ControlsHint", topBar, "FIRST LEVEL: SUMMON BASE BEARER", TextAnchor.MiddleCenter, 18, new Vector2(300f, 0f), new Vector2(420f, 34f));
+    EnsureText("ControlsHint", topBar, string.Empty, TextAnchor.MiddleCenter, 18, new Vector2(300f, 0f), new Vector2(420f, 34f));
     EnsureText("EnemyHealth", topBar, "500 (THEM)", TextAnchor.MiddleRight, 24, new Vector2(800f, 0f), new Vector2(210f, 44f));
+    var legacySettings = FindText("Settings");
+    if (legacySettings != null) legacySettings.text = string.Empty;
 
     var bottomBar = EnsurePanel("BottomBar", mainCanvas.transform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 82f), new Vector2(1800f, 164f), new Color(0.12f, 0.09f, 0.08f, 0.88f));
     EnsureText("SparkFooter", bottomBar, "ONLY BASE BEARER IS UNLOCKED", TextAnchor.MiddleLeft, 24, new Vector2(-610f, 44f), new Vector2(480f, 40f));
@@ -484,6 +528,29 @@ namespace WarOfTheTotems.Gameplay
     // Увеличиваем шрифт лейбла кнопки
     var hubBtnLabel = hubCard.Find("HubBattleButton")?.Find("HubBattleButtonLabel")?.GetComponent<Text>();
     if (hubBtnLabel != null) hubBtnLabel.fontSize = 34;
+
+    var levelsBackdrop = EnsurePanel("LevelsOverlay", mainCanvas.transform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.05f, 0.07f, 0.10f, 0.92f));
+    levelsBackdrop.anchorMin = Vector2.zero;
+    levelsBackdrop.anchorMax = Vector2.one;
+    levelsBackdrop.sizeDelta = Vector2.zero;
+    levelsBackdrop.anchoredPosition = Vector2.zero;
+    levelSelectPanel = levelsBackdrop;
+
+    var levelsCard = EnsurePanel("LevelsCard", levelsBackdrop, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 35f), new Vector2(920f, 560f), new Color(0.11f, 0.12f, 0.16f, 0.98f));
+    var levelsAccent = EnsurePanel("LevelsAccent", levelsCard, new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, new Vector2(0f, 6f), new Color(0.84f, 0.46f, 0.12f, 1f));
+    levelsAccent.anchorMin = new Vector2(0f, 1f);
+    levelsAccent.anchorMax = new Vector2(1f, 1f);
+    levelsAccent.pivot = new Vector2(0.5f, 1f);
+    levelsAccent.sizeDelta = new Vector2(0f, 6f);
+    levelsAccent.anchoredPosition = Vector2.zero;
+    battleMenuTitleText = EnsureText("BattleMenuTitle", levelsCard, "ВЫБОР УРОВНЯ", TextAnchor.MiddleCenter, 38, new Vector2(0f, 220f), new Vector2(420f, 50f));
+    battleMenuDescriptionText = EnsureText("BattleMenuDescription", levelsCard, "После обучения доступен первый бой", TextAnchor.MiddleCenter, 20, new Vector2(0f, 180f), new Vector2(680f, 32f));
+    var levelOneCard = EnsurePanel("Level01Card", levelsCard, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 10f), new Vector2(340f, 220f), new Color(0.19f, 0.22f, 0.18f, 1f));
+    EnsureText("Level01Title", levelOneCard, "УРОВЕНЬ 1", TextAnchor.MiddleCenter, 30, new Vector2(0f, 62f), new Vector2(240f, 40f));
+    EnsureText("Level01Enemy", levelOneCard, "Башня врага: 1 уровень", TextAnchor.MiddleCenter, 20, new Vector2(0f, 18f), new Vector2(240f, 28f));
+    EnsureText("Level01Player", levelOneCard, "У тебя только 1 базовый боец", TextAnchor.MiddleCenter, 18, new Vector2(0f, -16f), new Vector2(260f, 28f));
+    battleLevelStatusText = EnsureText("Level01Status", levelOneCard, "ОТКРЫТ", TextAnchor.MiddleCenter, 18, new Vector2(0f, -56f), new Vector2(180f, 24f));
+    levelStartButton = EnsureButton("Level01StartButton", levelsCard, "В БОЙ", new Vector2(0f, -180f), new Vector2(300f, 72f), new Color(0.84f, 0.42f, 0.10f, 1f));
 
     // 4. МЕНЮ ПРОКАЧКИ (ЮНИТЫ) — всё строим сразу в правильных родителях
     // Backdrop на весь экран
@@ -575,8 +642,14 @@ namespace WarOfTheTotems.Gameplay
             sparkBottomText = FindText("SparkFooter");
             evolutionLabelText = FindText("EvolutionLabel");
             controlsHintText = FindText("ControlsHint");
+            if (controlsHintText != null) controlsHintText.gameObject.SetActive(false);
+            var settingsText = FindText("Settings");
+            if (settingsText != null) settingsText.gameObject.SetActive(false);
             defeatMessageText = FindText("DefeatMessage");
             defeatTitleText = FindText("DefeatTitle");
+            battleMenuTitleText = FindText("BattleMenuTitle");
+            battleMenuDescriptionText = FindText("BattleMenuDescription");
+            battleLevelStatusText = FindText("Level01Status");
             unitsBalanceText = FindText("UnitsBalance");
             unitsUpgradeCostText = FindText("UnitsUpgradeCost");
             unitsHealthValueText = FindText("UnitsHealthValue");
@@ -587,6 +660,7 @@ namespace WarOfTheTotems.Gameplay
             defeatPanel = FindRect("DefeatOverlay");
             unitsPanel = FindRect("UnitsOverlay");
             hubPanel = FindRect("HubOverlay");
+            levelSelectPanel = FindRect("LevelsOverlay");
             topBarPanel = FindRect("TopBar");
             battleHudPanel = FindRect("BottomBar");
             bottomNavPanel = FindRect("BottomNav");
@@ -596,11 +670,12 @@ namespace WarOfTheTotems.Gameplay
             beastSummonButton = BindButton(new[] { "Beast Totem (3)", "Beast Totem Summon" }, () => SpawnPlayerUnit(TotemType.Beast));
             defeatUnitsButton = BindButton(new[] { "DefeatUnitsButton" }, OpenUnitsAfterDefeat);
             unitsUpgradeButton = BindButton(new[] { "UnitsUpgradeButton" }, UpgradeBaseBearerHealth);
-            unitsBattleButton = BindButton(new[] { "UnitsBattleButton" }, StartBattleFromMenu);
-            hubBattleButton = BindButton(new[] { "HubBattleButton" }, StartBattleFromMenu);
+            unitsBattleButton = BindButton(new[] { "UnitsBattleButton" }, OpenLevelSelect);
+            hubBattleButton = BindButton(new[] { "HubBattleButton" }, StartTutorialBattle);
+            levelStartButton = BindButton(new[] { "Level01StartButton" }, StartSelectedLevel);
             navHomeButton = BindButton(new[] { "NavHomeButton" }, () => SwitchScreen(ScreenMode.Hub));
             navUnitsButton = BindButton(new[] { "NavUnitsButton" }, () => SwitchScreen(ScreenMode.Units));
-            navBattleButton = BindButton(new[] { "NavBattleButton" }, StartBattleFromMenu);
+            navBattleButton = BindButton(new[] { "NavBattleButton" }, OpenLevelSelect);
 
             SetPanelVisible(defeatPanel, false);
             SetPanelVisible(unitsPanel, false);
@@ -716,6 +791,33 @@ namespace WarOfTheTotems.Gameplay
             {
                 unitsHealthValueText.text = $"{10 + state.baseBearerBonusHealth}";
             }
+
+            if (battleMenuTitleText != null)
+            {
+                battleMenuTitleText.text = state.tutorialCompleted ? "ВЫБОР УРОВНЯ" : "ОБУЧЕНИЕ";
+            }
+
+            if (battleMenuDescriptionText != null)
+            {
+                battleMenuDescriptionText.text = state.tutorialCompleted
+                    ? $"{activeLevel.title}: {activeLevel.description}"
+                    : "Сначала пройди показательный бой, затем откроется уровень 1.";
+            }
+
+            if (battleLevelStatusText != null)
+            {
+                battleLevelStatusText.text = state.tutorialCompleted ? "ОТКРЫТ" : "ОТКРОЕТСЯ ПОСЛЕ ОБУЧЕНИЯ";
+            }
+
+            if (levelStartButton != null)
+            {
+                levelStartButton.interactable = state.tutorialCompleted;
+            }
+
+            if (battleMenuTitleText != null) battleMenuTitleText.text = "ВЫБОР УРОВНЯ";
+            if (battleMenuDescriptionText != null) battleMenuDescriptionText.text = $"{GetSelectedLevel().title}: {GetSelectedLevel().description}";
+            if (battleLevelStatusText != null) battleLevelStatusText.text = "ОТКРЫТ";
+            if (levelStartButton != null) levelStartButton.interactable = true;
 
             RefreshBaseHealthOverlay(playerBaseWorldFill, playerBaseWorldText, state.playerBaseHealth, playerBaseMaxHealth);
             RefreshBaseHealthOverlay(enemyBaseWorldFill, enemyBaseWorldText, state.enemyBaseHealth, enemyBaseMaxHealth);
@@ -978,6 +1080,17 @@ namespace WarOfTheTotems.Gameplay
             UpdateSummonCard(baseSummonButton, "Base Bearer (1)Cost", GetCostLabel(TotemType.None), CanAfford(TotemType.None));
             UpdateSummonCard(stoneSummonButton, "Stone Totem (2)Cost", GetCostLabel(TotemType.Stone), CanAfford(TotemType.Stone));
             UpdateSummonCard(beastSummonButton, "Beast Totem (3)Cost", GetCostLabel(TotemType.Beast), CanAfford(TotemType.Beast));
+
+            if (stoneSummonButton != null)
+            {
+                stoneSummonButton.gameObject.SetActive(StoneTotemUnlocked);
+            }
+
+            if (beastSummonButton != null)
+            {
+                beastSummonButton.gameObject.SetActive(BeastTotemUnlocked);
+            }
+
             if (unitsUpgradeButton != null)
             {
                 unitsUpgradeButton.interactable = state.upgradeCoins >= state.baseBearerHealthUpgradeCost;
@@ -1181,6 +1294,8 @@ namespace WarOfTheTotems.Gameplay
 
         private bool CanAfford(TotemType totem)
         {
+            if (totem == TotemType.Stone && !StoneTotemUnlocked) return false;
+            if (totem == TotemType.Beast && !BeastTotemUnlocked) return false;
             var option = GetSummonOption(totem);
             return state.primalSpark >= option.sparkCost && state.ancestralBone >= option.boneCost;
         }
@@ -1221,7 +1336,13 @@ namespace WarOfTheTotems.Gameplay
             {
                 battleEnded = true;
                 playerWon = true;
-                state.upgradeCoins += 5;
+                if (!state.tutorialCompleted)
+                {
+                    state.tutorialCompleted = true;
+                    state.highestUnlockedLevel = Mathf.Max(state.highestUnlockedLevel, 1);
+                }
+
+                state.upgradeCoins += Mathf.Max(1, activeLevel.rewardCoins);
                 SaveMetaProgress();
                 ShowBattleResult();
             }
@@ -1259,11 +1380,72 @@ namespace WarOfTheTotems.Gameplay
             RefreshUi();
         }
 
-        private void StartBattleFromMenu()
+        private void OpenLevelSelect()
         {
+            activeLevel = GetSelectedLevel();
+            SwitchScreen(ScreenMode.Levels);
+        }
+
+        private void StartSelectedLevel()
+        {
+            selectedLevelIndex = Mathf.Clamp(selectedLevelIndex, 0, Mathf.Max(0, state.levels.Length - 1));
+            activeLevel = GetSelectedLevel();
+            StartLevelBattle(activeLevel);
+        }
+
+        private void StartTutorialBattle()
+        {
+            activeLevel = new BattleLevelDefinition(
+                "tutorial",
+                "Обучение",
+                "Показательный бой",
+                5,
+                5,
+                500,
+                10,
+                1f,
+                3,
+                8f,
+                0,
+                0,
+                0,
+                0,
+                false,
+                false);
+
+            StartLevelBattle(activeLevel);
+        }
+
+        private void StartLevelBattle(BattleLevelDefinition level)
+        {
+            ApplyLevelState(level);
             ResetBattleState();
             SwitchScreen(ScreenMode.Battle);
             SpawnEnemyWave();
+        }
+
+        private void ApplyLevelState(BattleLevelDefinition level)
+        {
+            activeLevel = level;
+            state.playerBaseHealth = level.playerBaseHealth;
+            state.enemyBaseHealth = level.enemyBaseHealth;
+            state.primalSpark = level.startingSpark;
+            state.primalSparkMax = Mathf.Max(level.startingSpark, 1);
+            state.primalSparkRegenPerSecond = level.sparkRegenPerSecond;
+            state.enemyWaveSize = Mathf.Max(1, level.enemyWaveSize);
+            state.enemyWaveInterval = Mathf.Max(0.1f, level.enemyWaveInterval);
+            playerBaseMaxHealth = Mathf.Max(1, level.playerBaseHealth);
+            enemyBaseMaxHealth = Mathf.Max(1, level.enemyBaseHealth);
+        }
+
+        private BattleLevelDefinition GetSelectedLevel()
+        {
+            if (state.levels == null || state.levels.Length == 0)
+            {
+                return default;
+            }
+
+            return state.levels[Mathf.Clamp(selectedLevelIndex, 0, state.levels.Length - 1)];
         }
 
         private void LoadMetaProgress()
@@ -1271,6 +1453,8 @@ namespace WarOfTheTotems.Gameplay
             state.upgradeCoins = PlayerPrefs.GetInt("WarOfTheTotems.UpgradeCoins", state.startingUpgradeCoins);
             state.baseBearerBonusHealth = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerBonusHealth", 0);
             state.baseBearerHealthUpgradeCost = PlayerPrefs.GetInt("WarOfTheTotems.BaseBearerUpgradeCost", 5);
+            state.tutorialCompleted = PlayerPrefs.GetInt("WarOfTheTotems.TutorialCompleted", 0) == 1;
+            state.highestUnlockedLevel = Mathf.Max(1, PlayerPrefs.GetInt("WarOfTheTotems.HighestUnlockedLevel", 1));
         }
 
         private void SaveMetaProgress()
@@ -1278,6 +1462,8 @@ namespace WarOfTheTotems.Gameplay
             PlayerPrefs.SetInt("WarOfTheTotems.UpgradeCoins", state.upgradeCoins);
             PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerBonusHealth", state.baseBearerBonusHealth);
             PlayerPrefs.SetInt("WarOfTheTotems.BaseBearerUpgradeCost", state.baseBearerHealthUpgradeCost);
+            PlayerPrefs.SetInt("WarOfTheTotems.TutorialCompleted", state.tutorialCompleted ? 1 : 0);
+            PlayerPrefs.SetInt("WarOfTheTotems.HighestUnlockedLevel", state.highestUnlockedLevel);
             PlayerPrefs.Save();
         }
 
@@ -1313,6 +1499,7 @@ namespace WarOfTheTotems.Gameplay
         private void ApplyScreenVisibility()
         {
             SetPanelVisible(hubPanel, screenMode == ScreenMode.Hub);
+            SetPanelVisible(levelSelectPanel, screenMode == ScreenMode.Levels);
             SetPanelVisible(unitsPanel, screenMode == ScreenMode.Units);
             SetPanelVisible(topBarPanel, screenMode == ScreenMode.Battle);
             SetPanelVisible(battleHudPanel, screenMode == ScreenMode.Battle);

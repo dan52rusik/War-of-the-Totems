@@ -214,9 +214,9 @@ namespace WarOfTheTotems.Gameplay
                     break;
                 case TotemType.Shadow:
                     CurrentLabel = "SHADOW HUNTER";
-                    maxHealth = 14f;
+                    maxHealth = controller.GetConfiguredUnitHealth(TeamSide.Enemy, TotemType.Shadow, 14);
                     moveSpeed = 0.85f;
-                    attackDamage = 3f;
+                    attackDamage = controller.GetConfiguredUnitDamage(TeamSide.Enemy, TotemType.Shadow, 3);
                     attackInterval = 0.58f;
                     attackRange = 0.68f;
                     engagementRange = 5.0f;
@@ -224,9 +224,9 @@ namespace WarOfTheTotems.Gameplay
                     break;
                 default:
                     CurrentLabel = "BASE BEARER";
-                    maxHealth = 10f + controller.BaseBearerBonusHealth;
+                    maxHealth = controller.GetConfiguredUnitHealth(TeamSide.Player, TotemType.None, 10 + controller.BaseBearerBonusHealth);
                     moveSpeed = 1.6f;
-                    attackDamage = 1f;
+                    attackDamage = controller.GetConfiguredUnitDamage(TeamSide.Player, TotemType.None, 1);
                     attackInterval = 0.85f;
                     attackRange = 0.55f;
                     engagementRange = 5.0f;
